@@ -2,7 +2,7 @@ package com.yourapp.sqliautohunter.data.repository
 
 import com.yourapp.sqliautohunter.data.local.database.dao.SearchQueueDao
 import com.yourapp.sqliautohunter.data.local.database.entity.SearchQueueEntity
-import com.yourapp.sqliautohunter.data.local.database.entity.ScanStatus
+import com.yourapp.sqliautohunter.domain.model.ScanStatus
 import com.yourapp.sqliautohunter.domain.usecase.CheckUrlHashUseCase
 import com.yourapp.sqliautohunter.domain.usecase.FilterBlacklistedDomainUseCase
 import com.yourapp.sqliautohunter.domain.usecase.NormalizeUrlUseCase

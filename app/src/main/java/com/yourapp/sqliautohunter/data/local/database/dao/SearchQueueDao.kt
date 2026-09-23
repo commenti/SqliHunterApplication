@@ -7,7 +7,7 @@ import androidx.room.Query
 import androidx.room.Transaction
 import androidx.room.Update
 import com.yourapp.sqliautohunter.data.local.database.entity.SearchQueueEntity
-import com.yourapp.sqliautohunter.data.local.database.entity.ScanStatus
+import com.yourapp.sqliautohunter.domain.model.ScanStatus
 import kotlinx.coroutines.flow.Flow
 
 @Dao

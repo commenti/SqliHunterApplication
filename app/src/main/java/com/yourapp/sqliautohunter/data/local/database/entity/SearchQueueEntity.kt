@@ -3,7 +3,7 @@ package com.yourapp.sqliautohunter.data.local.database.entity
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 import androidx.room.TypeConverters
-import com.yourapp.sqliautohunter.util.Constants
+import com.yourapp.sqliautohunter.domain.model.ScanStatus
 
 @Entity(tableName = "search_queue")
 @TypeConverters(ScanStatusConverter::class)
@@ -15,14 +15,6 @@ data class SearchQueueEntity(
     val status: ScanStatus = ScanStatus.PENDING,
     val timestamp: Long = System.currentTimeMillis()
 )
-
-enum class ScanStatus {
-    PENDING,
-    TESTING,
-    VULNERABLE,
-    NOT_VULNERABLE,
-    ERROR
-}
 
 class ScanStatusConverter {
     @androidx.room.TypeConverter
