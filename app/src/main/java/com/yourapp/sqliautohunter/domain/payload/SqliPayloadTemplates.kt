@@ -12,7 +12,7 @@ object SqliPayloadTemplates {
         "'",
         "\"",
         "')",
-        "")",
+        "\"")",
         "' OR '1'='1",
         "' OR 1=1 -- ",
         "' OR 1=1 #",
