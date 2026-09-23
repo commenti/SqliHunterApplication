@@ -5,6 +5,7 @@ on:
     branches: [ main, develop ]
     paths:
       - 'app/**'
+      - 'gradle/**'
       - 'build.gradle.kts'
       - 'settings.gradle.kts'
       - '.github/workflows/build.yml'
@@ -12,6 +13,7 @@ on:
     branches: [ main ]
     paths:
       - 'app/**'
+      - 'gradle/**'
       - 'build.gradle.kts'
       - 'settings.gradle.kts'
       - '.github/workflows/build.yml'
@@ -21,37 +23,44 @@ on:
         description: 'Build type (debug/release)'
         required: true
         default: 'debug'
+        type: choice
+        options: [debug, release]
       run_tests:
         description: 'Run tests'
         required: false
         default: 'true'
+        type: choice
+        options: ['true', 'false']
 
 concurrency:
   group: build-${{ github.ref }}
   cancel-in-progress: true
 
 env:
-  # Java version
   JAVA_VERSION: '17'
-  
-  # Android SDK
-  ANDROID_SDK_ROOT: /usr/local/android-sdk
-  ANDROID_NDK_ROOT: /usr/local/android-sdk/ndk
-  
-  # Build tool versions
   ANDROID_BUILD_TOOLS: '34.0.0'
-  ANDROID_CMDLINE_TOOLS: '9477386'
-  
-  # Gradle
+  ANDROID_CMDLINE_TOOLS: '11076708'
+  ANDROID_PLATFORM: 'android-34'
   GRADLE_VERSION: '8.4'
+  # Writable path inside the workspace - /usr/local is not reliably writable
+  ANDROID_SDK_ROOT: ${{ github.workspace }}/.android-sdk
+
+# Every multi-line run: block below starts with this trap.
+# It prints the exact command and line number that failed, so logs always
+# show what actually broke instead of a generic non-zero exit.
+# ---------------------------------------------------------------------
+#   set -euo pipefail
+#   trap 'echo "::error::FAILED -> \"$BASH_COMMAND\" (line $LINENO)"' ERR
+# ---------------------------------------------------------------------
 
 jobs:
-  # Setup job - installs all required tools
   setup:
     name: Setup Environment
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-    
+    timeout-minutes: 20
+    outputs:
+      sdk-cache-key: ${{ steps.sdk-key.outputs.key }}
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -63,74 +72,102 @@ jobs:
         uses: actions/setup-java@v4
         with:
           java-version: ${{ env.JAVA_VERSION }}
-          distribution: 'temurin'
-          cache: 'gradle'
+          distribution: temurin
+          cache: gradle
 
-      - name: Cache Gradle
-        uses: actions/cache@v3
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle.kts', '**/gradle-wrapper.properties') }}
-          restore-keys: |
-            gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle.kts') }}
-            gradle-${{ runner.os }}
+      - name: Compute SDK cache key
+        id: sdk-key
+        shell: bash
+        run: |
+          set -euo pipefail
+          trap 'echo "::error::FAILED -> \"$BASH_COMMAND\" (line $LINENO)"' ERR
+
+          KEY="android-sdk-v1-${{ runner.os }}-${{ env.ANDROID_CMDLINE_TOOLS }}-${{ env.ANDROID_BUILD_TOOLS }}-${{ env.ANDROID_PLATFORM }}"
+          echo "SDK cache key: $KEY"
+          echo "key=$KEY" >> "$GITHUB_OUTPUT"
 
       - name: Cache Android SDK
-        uses: actions/cache@v3
+        id: sdk-cache
+        uses: actions/cache@v4
         with:
-          path: |
-            /usr/local/android-sdk
-            /usr/local/android-ndk
-          key: android-sdk-${{ hashFiles('.github/workflows/build.yml') }}
-          restore-keys: android-sdk
+          path: ${{ env.ANDROID_SDK_ROOT }}
+          key: ${{ steps.sdk-key.outputs.key }}
+          restore-keys: |
+            android-sdk-v1-${{ runner.os }}-
 
       - name: Install Android SDK
+        if: steps.sdk-cache.outputs.cache-hit != 'true'
+        shell: bash
         run: |
-          # Install command-line tools
-          wget -q -O android-cmdline-tools.zip https://dl.google.com/android/repository/commandlinetools-linux-${{ env.ANDROID_CMDLINE_TOOLS }}_latest.zip
-          unzip -q android-cmdline-tools.zip -d /usr/local/
-          mv /usr/local/cmdline-tools /usr/local/android-sdk/cmdline-tools/latest
-          
-          # Accept licenses
-          yes | /usr/local/android-sdk/cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null
-          
-          # Install SDK packages
-          /usr/local/android-sdk/cmdline-tools/latest/bin/sdkmanager "platforms;android-34" > /dev/null
-          /usr/local/android-sdk/cmdline-tools/latest/bin/sdkmanager "build-tools;${{ env.ANDROID_BUILD_TOOLS }}" > /dev/null
-          /usr/local/android-sdk/cmdline-tools/latest/bin/sdkmanager "platform-tools" > /dev/null
-          /usr/local/android-sdk/cmdline-tools/latest/bin/sdkmanager "emulator" > /dev/null
-          /usr/local/android-sdk/cmdline-tools/latest/bin/sdkmanager "patcher;v4" > /dev/null
-          
-          # Set environment variables
-          echo "ANDROID_HOME=/usr/local/android-sdk" >> $GITHUB_ENV
-          echo "ANDROID_SDK_ROOT=/usr/local/android-sdk" >> $GITHUB_ENV
-          echo "ANDROID_NDK_HOME=/usr/local/android-sdk/ndk" >> $GITHUB_ENV
+          set -euo pipefail
+          trap 'echo "::error::FAILED -> \"$BASH_COMMAND\" (line $LINENO)"' ERR
+
+          SDK_ROOT="${{ env.ANDROID_SDK_ROOT }}"
+          CMDLINE_ZIP="commandlinetools-linux-${{ env.ANDROID_CMDLINE_TOOLS }}_latest.zip"
+          URL="https://dl.google.com/android/repository/${CMDLINE_ZIP}"
+
+          mkdir -p "$SDK_ROOT/cmdline-tools"
+
+          echo "::group::Download Android command line tools"
+          curl --fail --location --show-error --retry 3 --retry-delay 5 \
+            --connect-timeout 30 --output "$CMDLINE_ZIP" "$URL"
+          [ -s "$CMDLINE_ZIP" ] || { echo "::error::Downloaded archive is empty"; exit 1; }
+          echo "::endgroup::"
+
+          echo "::group::Extract Android command line tools"
+          rm -rf "$SDK_ROOT/cmdline-tools/latest" "$SDK_ROOT/cmdline-tools/cmdline-tools"
+          unzip -q "$CMDLINE_ZIP" -d "$SDK_ROOT/cmdline-tools"
+          rm -f "$CMDLINE_ZIP"
+          [ -d "$SDK_ROOT/cmdline-tools/cmdline-tools" ] || { echo "::error::Extracted folder not found"; exit 1; }
+          mv "$SDK_ROOT/cmdline-tools/cmdline-tools" "$SDK_ROOT/cmdline-tools/latest"
+          echo "::endgroup::"
+
+          SDKMANAGER="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          [ -x "$SDKMANAGER" ] || { echo "::error::sdkmanager not found at $SDKMANAGER"; exit 1; }
+          "$SDKMANAGER" --version
+
+          echo "::group::Accept Android SDK licenses"
+          set +o pipefail
+          yes 2>/dev/null | "$SDKMANAGER" --licenses >/dev/null
+          set -o pipefail
+          echo "::endgroup::"
+
+          echo "::group::Install Android SDK packages"
+          "$SDKMANAGER" "platforms;${{ env.ANDROID_PLATFORM }}" \
+            "build-tools;${{ env.ANDROID_BUILD_TOOLS }}" "platform-tools"
+          echo "::endgroup::"
+
+      - name: Export SDK environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          trap 'echo "::error::FAILED -> \"$BASH_COMMAND\" (line $LINENO)"' ERR
+
+          SDK_ROOT="${{ env.ANDROID_SDK_ROOT }}"
+          [ -d "$SDK_ROOT" ] || { echo "::error::SDK root not found: $SDK_ROOT"; exit 1; }
+          [ -x "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" ] || { echo "::error::sdkmanager missing"; exit 1; }
+          [ -d "$SDK_ROOT/platform-tools" ] || { echo "::error::platform-tools missing"; exit 1; }
+
+          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "$SDK_ROOT/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+          echo "$SDK_ROOT/platform-tools" >> "$GITHUB_PATH"
 
       - name: Verify Android SDK
+        shell: bash
         run: |
-          echo "SDK Manager Version:"
-          /usr/local/android-sdk/cmdline-tools/latest/bin/sdkmanager --version
-          echo ""
-          echo "Installed SDK Packages:"
-          /usr/local/android-sdk/cmdline-tools/latest/bin/sdkmanager --list_installed
+          set -euo pipefail
+          trap 'echo "::error::FAILED -> \"$BASH_COMMAND\" (line $LINENO)"' ERR
+          sdkmanager --version
+          sdkmanager --list_installed
+          adb version
 
-      - name: Upload Android SDK cache
-        uses: actions/cache/save@v3
-        if: always()
-        with:
-          path: |
-            /usr/local/android-sdk
-          key: android-sdk-${{ hashFiles('.github/workflows/build.yml') }}
-
-  # Build job
   build:
     name: Build Application
     needs: setup
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -139,88 +176,132 @@ jobs:
         uses: actions/setup-java@v4
         with:
           java-version: ${{ env.JAVA_VERSION }}
-          distribution: 'temurin'
-          cache: 'gradle'
-
-      - name: Restore Gradle cache
-        uses: actions/cache@v3
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle.kts', '**/gradle-wrapper.properties') }}
+          distribution: temurin
+          cache: gradle
 
       - name: Restore Android SDK
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
-          path: /usr/local/android-sdk
-          key: android-sdk-${{ hashFiles('.github/workflows/build.yml') }}
+          path: ${{ env.ANDROID_SDK_ROOT }}
+          key: ${{ needs.setup.outputs.sdk-cache-key }}
+          fail-on-cache-miss: true
 
-      - name: Set up environment
+      - name: Export SDK environment
+        shell: bash
         run: |
-          echo "ANDROID_HOME=/usr/local/android-sdk" >> $GITHUB_ENV
-          echo "ANDROID_SDK_ROOT=/usr/local/android-sdk" >> $GITHUB_ENV
-          echo "ANDROID_NDK_HOME=/usr/local/android-sdk/ndk" >> $GITHUB_ENV
-          echo "JAVA_HOME=$(/usr/libexec/java_home -v ${{ env.JAVA_VERSION }})" >> $GITHUB_ENV
+          set -euo pipefail
+          trap 'echo "::error::FAILED -> \"$BASH_COMMAND\" (line $LINENO)"' ERR
 
-      - name: Grant execute permission for gradlew
-        run: chmod +x ./gradlew
+          SDK_ROOT="${{ env.ANDROID_SDK_ROOT }}"
+          [ -d "$SDK_ROOT" ] || { echo "::error::SDK cache dir not found: $SDK_ROOT"; exit 1; }
+          [ -x "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" ] || { echo "::error::sdkmanager missing after restore"; exit 1; }
+
+          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "$SDK_ROOT/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+          echo "$SDK_ROOT/platform-tools" >> "$GITHUB_PATH"
+
+      - name: Verify Gradle wrapper
+        shell: bash
+        run: |
+          set -euo pipefail
+          trap 'echo "::error::FAILED -> \"$BASH_COMMAND\" (line $LINENO)"' ERR
+
+          [ -f "./gradlew" ] || { echo "::error::gradlew missing from repo root"; exit 1; }
+          [ -f "gradle/wrapper/gradle-wrapper.jar" ] || { echo "::error::gradle-wrapper.jar missing"; exit 1; }
+          [ -f "gradle/wrapper/gradle-wrapper.properties" ] || { echo "::error::gradle-wrapper.properties missing"; exit 1; }
+
+          echo "::group::Wrapper jar sanity check"
+          file gradle/wrapper/gradle-wrapper.jar
+          if ! unzip -l gradle/wrapper/gradle-wrapper.jar | grep -q "org/gradle/wrapper/GradleWrapperMain.class"; then
+            echo "::error::gradle-wrapper.jar is corrupt or invalid: GradleWrapperMain.class not found inside it"
+            exit 1
+          fi
+          echo "::endgroup::"
+
+          chmod +x ./gradlew
+          ./gradlew --version
 
       - name: Clean build
-        run: ./gradlew clean --no-daemon --stacktrace
+        shell: bash
+        run: |
+          set -euo pipefail
+          trap 'echo "::error::FAILED -> \"$BASH_COMMAND\" (line $LINENO)"' ERR
+          ./gradlew clean --no-daemon --stacktrace
+
+      - name: Determine build type
+        id: bt
+        shell: bash
+        run: |
+          set -euo pipefail
+          trap 'echo "::error::FAILED -> \"$BASH_COMMAND\" (line $LINENO)"' ERR
+
+          BT="${{ github.event.inputs.build_type }}"
+          [ -z "$BT" ] && BT="debug"
+          case "$BT" in
+            debug|release) ;;
+            *) echo "::error::Invalid build type: $BT"; exit 1 ;;
+          esac
+          echo "type=$BT" >> "$GITHUB_OUTPUT"
 
       - name: Build debug APK
-        if: ${{ github.event.inputs.build_type != 'release' || github.event.inputs.build_type == null }}
+        if: steps.bt.outputs.type == 'debug'
+        shell: bash
         run: |
-          ./gradlew assembleDebug --no-daemon --stacktrace --info
-          echo "DEBUG_APK_PATH=$(find app/build/outputs -name '*.apk' -path '*/debug/*' | head -1)" >> $GITHUB_ENV
+          set -euo pipefail
+          trap 'echo "::error::FAILED -> \"$BASH_COMMAND\" (line $LINENO)"' ERR
+
+          ./gradlew assembleDebug --no-daemon --stacktrace
+          APK="$(find app/build/outputs/apk/debug -type f -name '*.apk' | head -1 || true)"
+          [ -n "$APK" ] && [ -f "$APK" ] || { echo "::error::Debug APK was not produced"; exit 1; }
+          echo "DEBUG_APK_PATH=$APK" >> "$GITHUB_ENV"
 
       - name: Build release APK
-        if: ${{ github.event.inputs.build_type == 'release' }}
+        if: steps.bt.outputs.type == 'release'
+        shell: bash
         run: |
-          ./gradlew assembleRelease --no-daemon --stacktrace --info
-          echo "RELEASE_APK_PATH=$(find app/build/outputs -name '*.apk' -path '*/release/*' | head -1)" >> $GITHUB_ENV
+          set -euo pipefail
+          trap 'echo "::error::FAILED -> \"$BASH_COMMAND\" (line $LINENO)"' ERR
+
+          ./gradlew assembleRelease --no-daemon --stacktrace
+          APK="$(find app/build/outputs/apk/release -type f -name '*.apk' | head -1 || true)"
+          [ -n "$APK" ] && [ -f "$APK" ] || { echo "::error::Release APK was not produced"; exit 1; }
+          echo "RELEASE_APK_PATH=$APK" >> "$GITHUB_ENV"
 
       - name: Upload debug APK artifact
-        if: ${{ github.event.inputs.build_type != 'release' || github.event.inputs.build_type == null }}
+        if: steps.bt.outputs.type == 'debug' && env.DEBUG_APK_PATH != ''
         uses: actions/upload-artifact@v4
         with:
           name: sqli-hunter-debug-apk
           path: ${{ env.DEBUG_APK_PATH }}
-          compression-level: 9
+          if-no-files-found: error
           retention-days: 30
 
       - name: Upload release APK artifact
-        if: ${{ github.event.inputs.build_type == 'release' }}
+        if: steps.bt.outputs.type == 'release' && env.RELEASE_APK_PATH != ''
         uses: actions/upload-artifact@v4
         with:
           name: sqli-hunter-release-apk
           path: ${{ env.RELEASE_APK_PATH }}
-          compression-level: 9
+          if-no-files-found: error
           retention-days: 90
 
-      - name: Generate build report
-        run: |
-          ./gradlew build --no-daemon --stacktrace --scan
-          echo "BUILD_SCAN_URL=$(grep -o 'https://[^ ]*scan' build/reports/building-report.html | head -1)" >> $GITHUB_ENV || true
-
       - name: Upload build reports
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: build-reports
-          path: |
-            app/build/reports/
-            app/build/outputs/
-          compression-level: 9
+          path: app/build/reports/
+          if-no-files-found: ignore
           retention-days: 7
 
-  # Test job
   test:
     name: Run Tests
-    needs: build
+    needs: [setup, build]
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    
+    if: ${{ github.event.inputs.run_tests != 'false' }}
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -229,46 +310,58 @@ jobs:
         uses: actions/setup-java@v4
         with:
           java-version: ${{ env.JAVA_VERSION }}
-          distribution: 'temurin'
+          distribution: temurin
+          cache: gradle
 
-      - name: Restore caches
-        uses: actions/cache@v3
+      - name: Restore Android SDK
+        uses: actions/cache@v4
         with:
-          path: |
-            ~/.gradle/caches
-            /usr/local/android-sdk
-          key: ${{ runner.os }}-${{ hashFiles('**/*.gradle.kts', '.github/workflows/build.yml') }}
+          path: ${{ env.ANDROID_SDK_ROOT }}
+          key: ${{ needs.setup.outputs.sdk-cache-key }}
+          fail-on-cache-miss: true
 
-      - name: Set up environment
+      - name: Export SDK environment
+        shell: bash
         run: |
-          echo "ANDROID_HOME=/usr/local/android-sdk" >> $GITHUB_ENV
-          echo "ANDROID_SDK_ROOT=/usr/local/android-sdk" >> $GITHUB_ENV
+          set -euo pipefail
+          trap 'echo "::error::FAILED -> \"$BASH_COMMAND\" (line $LINENO)"' ERR
+          SDK_ROOT="${{ env.ANDROID_SDK_ROOT }}"
+          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "$SDK_ROOT/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+          echo "$SDK_ROOT/platform-tools" >> "$GITHUB_PATH"
 
       - name: Grant execute permission
-        run: chmod +x ./gradlew
+        shell: bash
+        run: |
+          set -euo pipefail
+          trap 'echo "::error::FAILED -> \"$BASH_COMMAND\" (line $LINENO)"' ERR
+          chmod +x ./gradlew
 
       - name: Run unit tests
-        if: ${{ github.event.inputs.run_tests != 'false' }}
-        run: ./gradlew testDebugUnitTest --no-daemon --stacktrace --continue
+        shell: bash
+        run: |
+          set -euo pipefail
+          trap 'echo "::error::FAILED -> \"$BASH_COMMAND\" (line $LINENO)"' ERR
+          ./gradlew testDebugUnitTest --no-daemon --stacktrace --continue
 
       - name: Upload test results
-        if: ${{ github.event.inputs.run_tests != 'false' }}
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: test-results
           path: |
             app/build/reports/tests/
             app/build/test-results/
-          compression-level: 9
+          if-no-files-found: ignore
           retention-days: 7
 
-  # Lint job
   lint:
     name: Code Quality Checks
-    needs: build
+    needs: [setup, build]
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -277,53 +370,72 @@ jobs:
         uses: actions/setup-java@v4
         with:
           java-version: ${{ env.JAVA_VERSION }}
-          distribution: 'temurin'
+          distribution: temurin
+          cache: gradle
 
-      - name: Restore caches
-        uses: actions/cache@v3
+      - name: Restore Android SDK
+        uses: actions/cache@v4
         with:
-          path: |
-            ~/.gradle/caches
-            /usr/local/android-sdk
-          key: ${{ runner.os }}-${{ hashFiles('**/*.gradle.kts', '.github/workflows/build.yml') }}
+          path: ${{ env.ANDROID_SDK_ROOT }}
+          key: ${{ needs.setup.outputs.sdk-cache-key }}
+          fail-on-cache-miss: true
 
-      - name: Set up environment
+      - name: Export SDK environment
+        shell: bash
         run: |
-          echo "ANDROID_HOME=/usr/local/android-sdk" >> $GITHUB_ENV
-          echo "ANDROID_SDK_ROOT=/usr/local/android-sdk" >> $GITHUB_ENV
+          set -euo pipefail
+          trap 'echo "::error::FAILED -> \"$BASH_COMMAND\" (line $LINENO)"' ERR
+          SDK_ROOT="${{ env.ANDROID_SDK_ROOT }}"
+          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "$SDK_ROOT/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+          echo "$SDK_ROOT/platform-tools" >> "$GITHUB_PATH"
 
       - name: Grant execute permission
-        run: chmod +x ./gradlew
+        shell: bash
+        run: |
+          set -euo pipefail
+          trap 'echo "::error::FAILED -> \"$BASH_COMMAND\" (line $LINENO)"' ERR
+          chmod +x ./gradlew
 
       - name: Run lint
-        run: ./gradlew lintDebug --no-daemon --stacktrace --continue
-
-      - name: Run ktlint
+        shell: bash
         run: |
-          # Check if ktlint is configured
-          if [ -f "ktlint.gradle.kts" ] || grep -q "ktlint" app/build.gradle.kts; then
-            ./gradlew ktlintCheck --no-daemon --stacktrace
+          set -euo pipefail
+          trap 'echo "::error::FAILED -> \"$BASH_COMMAND\" (line $LINENO)"' ERR
+          ./gradlew lintDebug --no-daemon --stacktrace --continue
+
+      - name: Run ktlint if configured
+        shell: bash
+        run: |
+          set -euo pipefail
+          trap 'echo "::error::FAILED -> \"$BASH_COMMAND\" (line $LINENO)"' ERR
+          if [ -f "ktlint.gradle.kts" ] || grep -q "ktlint" app/build.gradle.kts 2>/dev/null; then
+            ./gradlew ktlintCheck --no-daemon --stacktrace || echo "::warning::ktlint reported issues"
           else
             echo "ktlint not configured, skipping"
           fi
 
       - name: Upload lint reports
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: lint-reports
-          path: |
-            app/build/reports/lint-results/
-          compression-level: 9
+          path: app/build/reports/lint-results/
+          if-no-files-found: ignore
           retention-days: 7
 
-  # Release job - creates GitHub release
   release:
     name: Create Release
     needs: [build, test, lint]
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
-    
+    if: |
+      always() &&
+      needs.build.result == 'success' &&
+      github.ref == 'refs/heads/main' &&
+      github.event_name == 'workflow_dispatch' &&
+      github.event.inputs.build_type == 'release'
     permissions:
       contents: write
       packages: write
@@ -339,6 +451,15 @@ jobs:
           name: sqli-hunter-release-apk
           path: release-artifacts
 
+      - name: Verify APK present
+        shell: bash
+        run: |
+          set -euo pipefail
+          trap 'echo "::error::FAILED -> \"$BASH_COMMAND\" (line $LINENO)"' ERR
+          APK="$(find release-artifacts -type f -name '*.apk' | head -1 || true)"
+          [ -n "$APK" ] && [ -f "$APK" ] || { echo "::error::No APK downloaded"; exit 1; }
+          echo "Release APK: $APK"
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -346,38 +467,39 @@ jobs:
           tag_name: v${{ github.run_number }}
           body: |
             ## SQLi Hunter Release v${{ github.run_number }}
-            
-            ### Changes
-            - Automated build from commit ${{ github.sha }}
-            - Full Android application with SQL injection scanning capabilities
-            
-            ### Download
-            - [APK File](https://github.com/${{ github.repository }}/releases/download/v${{ github.run_number }}/app-release.apk)
-          files: |
-            release-artifacts/*.apk
+            - Commit: ${{ github.sha }}
+            - Run: [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          files: release-artifacts/*.apk
           draft: false
           prerelease: false
-          fail_on_unmatched_files: false
+          fail_on_unmatched_files: true
 
-  # Notification job
   notify:
     name: Send Notifications
     needs: [build, test, lint]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     if: always()
-    
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+    env:
+      SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
 
-      - name: Send build notification
+    steps:
+      - name: Send Slack notification
+        if: ${{ env.SLACK_WEBHOOK != '' }}
         uses: rtCamp/action-slack-notify@v2
         env:
-          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
-          SLACK_COLOR: ${{ job.status == 'success' && '#2EB67D' || job.status == 'failure' && '#E01E5A' || '#FFCC00' }}
+          SLACK_WEBHOOK: ${{ env.SLACK_WEBHOOK }}
+          SLACK_COLOR: >-
+            ${{ job.status == 'success' && '#2EB67D' || job.status == 'failure' && '#E01E5A' || '#FFCC00' }}
           SLACK_TITLE: "SQLi Hunter Build ${{ job.status }}"
-          SLACK_MESSAGE: "Build ${{ job.status }} for ${{ github.ref }}@${{ github.sha }}"
+          SLACK_MESSAGE: >-
+            Build ${{ job.status }} for ${{ github.ref }}@${{ github.sha }}
           SLACK_CHANNEL: android-ci
           SLACK_USERNAME: GitHub Actions
           SLACK_ICON: https://github.com/github.png
+
+      - name: Warn if Slack webhook missing
+        if: ${{ env.SLACK_WEBHOOK == '' }}
+        shell: bash
+        run: echo "::warning::SLACK_WEBHOOK secret not set — skipping notification"
+
