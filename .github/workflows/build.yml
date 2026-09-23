@@ -1,0 +1,383 @@
+name: Android CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'app/**'
+      - 'build.gradle.kts'
+      - 'settings.gradle.kts'
+      - '.github/workflows/build.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'app/**'
+      - 'build.gradle.kts'
+      - 'settings.gradle.kts'
+      - '.github/workflows/build.yml'
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: 'Build type (debug/release)'
+        required: true
+        default: 'debug'
+      run_tests:
+        description: 'Run tests'
+        required: false
+        default: 'true'
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Java version
+  JAVA_VERSION: '17'
+  
+  # Android SDK
+  ANDROID_SDK_ROOT: /usr/local/android-sdk
+  ANDROID_NDK_ROOT: /usr/local/android-sdk/ndk
+  
+  # Build tool versions
+  ANDROID_BUILD_TOOLS: '34.0.0'
+  ANDROID_CMDLINE_TOOLS: '9477386'
+  
+  # Gradle
+  GRADLE_VERSION: '8.4'
+
+jobs:
+  # Setup job - installs all required tools
+  setup:
+    name: Setup Environment
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: 'temurin'
+          cache: 'gradle'
+
+      - name: Cache Gradle
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle.kts', '**/gradle-wrapper.properties') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle.kts') }}
+            gradle-${{ runner.os }}
+
+      - name: Cache Android SDK
+        uses: actions/cache@v3
+        with:
+          path: |
+            /usr/local/android-sdk
+            /usr/local/android-ndk
+          key: android-sdk-${{ hashFiles('.github/workflows/build.yml') }}
+          restore-keys: android-sdk
+
+      - name: Install Android SDK
+        run: |
+          # Install command-line tools
+          wget -q -O android-cmdline-tools.zip https://dl.google.com/android/repository/commandlinetools-linux-${{ env.ANDROID_CMDLINE_TOOLS }}_latest.zip
+          unzip -q android-cmdline-tools.zip -d /usr/local/
+          mv /usr/local/cmdline-tools /usr/local/android-sdk/cmdline-tools/latest
+          
+          # Accept licenses
+          yes | /usr/local/android-sdk/cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null
+          
+          # Install SDK packages
+          /usr/local/android-sdk/cmdline-tools/latest/bin/sdkmanager "platforms;android-34" > /dev/null
+          /usr/local/android-sdk/cmdline-tools/latest/bin/sdkmanager "build-tools;${{ env.ANDROID_BUILD_TOOLS }}" > /dev/null
+          /usr/local/android-sdk/cmdline-tools/latest/bin/sdkmanager "platform-tools" > /dev/null
+          /usr/local/android-sdk/cmdline-tools/latest/bin/sdkmanager "emulator" > /dev/null
+          /usr/local/android-sdk/cmdline-tools/latest/bin/sdkmanager "patcher;v4" > /dev/null
+          
+          # Set environment variables
+          echo "ANDROID_HOME=/usr/local/android-sdk" >> $GITHUB_ENV
+          echo "ANDROID_SDK_ROOT=/usr/local/android-sdk" >> $GITHUB_ENV
+          echo "ANDROID_NDK_HOME=/usr/local/android-sdk/ndk" >> $GITHUB_ENV
+
+      - name: Verify Android SDK
+        run: |
+          echo "SDK Manager Version:"
+          /usr/local/android-sdk/cmdline-tools/latest/bin/sdkmanager --version
+          echo ""
+          echo "Installed SDK Packages:"
+          /usr/local/android-sdk/cmdline-tools/latest/bin/sdkmanager --list_installed
+
+      - name: Upload Android SDK cache
+        uses: actions/cache/save@v3
+        if: always()
+        with:
+          path: |
+            /usr/local/android-sdk
+          key: android-sdk-${{ hashFiles('.github/workflows/build.yml') }}
+
+  # Build job
+  build:
+    name: Build Application
+    needs: setup
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: 'temurin'
+          cache: 'gradle'
+
+      - name: Restore Gradle cache
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle.kts', '**/gradle-wrapper.properties') }}
+
+      - name: Restore Android SDK
+        uses: actions/cache@v3
+        with:
+          path: /usr/local/android-sdk
+          key: android-sdk-${{ hashFiles('.github/workflows/build.yml') }}
+
+      - name: Set up environment
+        run: |
+          echo "ANDROID_HOME=/usr/local/android-sdk" >> $GITHUB_ENV
+          echo "ANDROID_SDK_ROOT=/usr/local/android-sdk" >> $GITHUB_ENV
+          echo "ANDROID_NDK_HOME=/usr/local/android-sdk/ndk" >> $GITHUB_ENV
+          echo "JAVA_HOME=$(/usr/libexec/java_home -v ${{ env.JAVA_VERSION }})" >> $GITHUB_ENV
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x ./gradlew
+
+      - name: Clean build
+        run: ./gradlew clean --no-daemon --stacktrace
+
+      - name: Build debug APK
+        if: ${{ github.event.inputs.build_type != 'release' || github.event.inputs.build_type == null }}
+        run: |
+          ./gradlew assembleDebug --no-daemon --stacktrace --info
+          echo "DEBUG_APK_PATH=$(find app/build/outputs -name '*.apk' -path '*/debug/*' | head -1)" >> $GITHUB_ENV
+
+      - name: Build release APK
+        if: ${{ github.event.inputs.build_type == 'release' }}
+        run: |
+          ./gradlew assembleRelease --no-daemon --stacktrace --info
+          echo "RELEASE_APK_PATH=$(find app/build/outputs -name '*.apk' -path '*/release/*' | head -1)" >> $GITHUB_ENV
+
+      - name: Upload debug APK artifact
+        if: ${{ github.event.inputs.build_type != 'release' || github.event.inputs.build_type == null }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: sqli-hunter-debug-apk
+          path: ${{ env.DEBUG_APK_PATH }}
+          compression-level: 9
+          retention-days: 30
+
+      - name: Upload release APK artifact
+        if: ${{ github.event.inputs.build_type == 'release' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: sqli-hunter-release-apk
+          path: ${{ env.RELEASE_APK_PATH }}
+          compression-level: 9
+          retention-days: 90
+
+      - name: Generate build report
+        run: |
+          ./gradlew build --no-daemon --stacktrace --scan
+          echo "BUILD_SCAN_URL=$(grep -o 'https://[^ ]*scan' build/reports/building-report.html | head -1)" >> $GITHUB_ENV || true
+
+      - name: Upload build reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-reports
+          path: |
+            app/build/reports/
+            app/build/outputs/
+          compression-level: 9
+          retention-days: 7
+
+  # Test job
+  test:
+    name: Run Tests
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: 'temurin'
+
+      - name: Restore caches
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.gradle/caches
+            /usr/local/android-sdk
+          key: ${{ runner.os }}-${{ hashFiles('**/*.gradle.kts', '.github/workflows/build.yml') }}
+
+      - name: Set up environment
+        run: |
+          echo "ANDROID_HOME=/usr/local/android-sdk" >> $GITHUB_ENV
+          echo "ANDROID_SDK_ROOT=/usr/local/android-sdk" >> $GITHUB_ENV
+
+      - name: Grant execute permission
+        run: chmod +x ./gradlew
+
+      - name: Run unit tests
+        if: ${{ github.event.inputs.run_tests != 'false' }}
+        run: ./gradlew testDebugUnitTest --no-daemon --stacktrace --continue
+
+      - name: Upload test results
+        if: ${{ github.event.inputs.run_tests != 'false' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: |
+            app/build/reports/tests/
+            app/build/test-results/
+          compression-level: 9
+          retention-days: 7
+
+  # Lint job
+  lint:
+    name: Code Quality Checks
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: 'temurin'
+
+      - name: Restore caches
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.gradle/caches
+            /usr/local/android-sdk
+          key: ${{ runner.os }}-${{ hashFiles('**/*.gradle.kts', '.github/workflows/build.yml') }}
+
+      - name: Set up environment
+        run: |
+          echo "ANDROID_HOME=/usr/local/android-sdk" >> $GITHUB_ENV
+          echo "ANDROID_SDK_ROOT=/usr/local/android-sdk" >> $GITHUB_ENV
+
+      - name: Grant execute permission
+        run: chmod +x ./gradlew
+
+      - name: Run lint
+        run: ./gradlew lintDebug --no-daemon --stacktrace --continue
+
+      - name: Run ktlint
+        run: |
+          # Check if ktlint is configured
+          if [ -f "ktlint.gradle.kts" ] || grep -q "ktlint" app/build.gradle.kts; then
+            ./gradlew ktlintCheck --no-daemon --stacktrace
+          else
+            echo "ktlint not configured, skipping"
+          fi
+
+      - name: Upload lint reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: lint-reports
+          path: |
+            app/build/reports/lint-results/
+          compression-level: 9
+          retention-days: 7
+
+  # Release job - creates GitHub release
+  release:
+    name: Create Release
+    needs: [build, test, lint]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    
+    permissions:
+      contents: write
+      packages: write
+      actions: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download APK artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: sqli-hunter-release-apk
+          path: release-artifacts
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: SQLi Hunter v${{ github.run_number }}
+          tag_name: v${{ github.run_number }}
+          body: |
+            ## SQLi Hunter Release v${{ github.run_number }}
+            
+            ### Changes
+            - Automated build from commit ${{ github.sha }}
+            - Full Android application with SQL injection scanning capabilities
+            
+            ### Download
+            - [APK File](https://github.com/${{ github.repository }}/releases/download/v${{ github.run_number }}/app-release.apk)
+          files: |
+            release-artifacts/*.apk
+          draft: false
+          prerelease: false
+          fail_on_unmatched_files: false
+
+  # Notification job
+  notify:
+    name: Send Notifications
+    needs: [build, test, lint]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: always()
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Send build notification
+        uses: rtCamp/action-slack-notify@v2
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+          SLACK_COLOR: ${{ job.status == 'success' && '#2EB67D' || job.status == 'failure' && '#E01E5A' || '#FFCC00' }}
+          SLACK_TITLE: "SQLi Hunter Build ${{ job.status }}"
+          SLACK_MESSAGE: "Build ${{ job.status }} for ${{ github.ref }}@${{ github.sha }}"
+          SLACK_CHANNEL: android-ci
+          SLACK_USERNAME: GitHub Actions
+          SLACK_ICON: https://github.com/github.png

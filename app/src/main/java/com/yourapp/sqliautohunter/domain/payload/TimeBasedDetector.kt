@@ -1,191 +1,208 @@
 package com.yourapp.sqliautohunter.domain.payload
 
-import com.yourapp.sqliautohunter.domain.model.VulnerabilityType
-import kotlin.math.abs
+import com.yourapp.sqliautohunter.util.Constants
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlin.system.measureTimeMillis
 
-/**
- * Time-based (blind) SQLi detector.
- *
- * Strategy: send a payload that is expected to induce a deliberate server-side
- * delay (SLEEP, pg_sleep, WAITFOR DELAY, DBMS_PIPE.RECEIVE_MESSAGE), measure
- * end-to-end response time, and compare against a control baseline taken
- * immediately beforehand.
- *
- * A hit requires:
- *   1. measured delay >= TIME_BASED_MIN_DELTA_MS (Constants) above baseline,
- *   2. the delay is not attributable to plain network jitter — mitigated by
- *      two consecutive confirmations with the same payload,
- *   3. a control run with a no-op payload completes fast (baseline < 50% of
- *      the suspect run), guarding against a slow server counting as a hit.
- *
- * The detector is stateless; the caller supplies all timing observations.
- */
 class TimeBasedDetector {
 
-    /**
-     * Timing observation for a single probe.
-     *
-     * @param payload   the concrete payload string sent (post-render),
-     * @param elapsedMs wall-clock from request issue to response fully read,
-     * @param wasError  true if the request errored out (timeouts count as
-     *                  errors — a timeout is NOT a time-based hit),
-     */
-    data class Probe(
-        val payload: String,
-        val elapsedMs: Long,
-        val wasError: Boolean = false
+    companion object {
+        private const val DEFAULT_SLEEP_TIME_MS = 5000L
+        private const val TOLERANCE_MS = 2000L
+        private const val MIN_CONFIDENCE_SLEEP_TIME = 3000L
+        private const val MAX_CONFIDENCE_SLEEP_TIME = 7000L
+    }
+
+    data class TimeTestResult(
+        val isVulnerable: Boolean,
+        val confidence: Double,
+        val responseTimeMs: Long,
+        val expectedDelayMs: Long,
+        val timeDifferenceMs: Long,
+        val isWithinTolerance: Boolean
     )
 
-    /**
-     * Detection outcome. `confirmed` requires two consecutive probes of the
-     * same payload both exceeding the baseline + threshold, and the baseline
-     * being meaningfully fast.
-     */
-    data class Detection(
-        val isHit: Boolean,
-        val baselineMs: Long,
-        val observedMs: Long,
-        val deltaMs: Long,
-        val confirmations: Int,
-        val payload: String,
-        val excerpt: String
-    )
-
-    val technique: VulnerabilityType = VulnerabilityType.TIME_BASED
-
-    fun payloads(cap: Int = 4): List<PayloadTemplate> =
-        SqliPayloadTemplates.forTechnique(VulnerabilityType.TIME_BASED, cap)
-
-    /**
-     * Evaluate a batch of probes for one parameter.
-     *
-     * @param baseline  timing of the control request (no injection),
-     * @param probes    ordered list of probe timings for the same payload family,
-     */
-    fun detect(baseline: Probe, probes: List<Probe>): Detection {
-        if (baseline.wasError || baseline.elapsedMs <= 0L || probes.isEmpty()) {
-            return emptyDetection(baseline, probes.firstOrNull())
-        }
-
-        val threshold = Constants.TIME_BASED_MIN_DELTA_MS
-        val baselineCeiling = (baseline.elapsedMs * 3L).coerceAtLeast(1_500L)
-
-        // Group confirmations by exact payload string.
-        val byPayload = probes
-            .filter { !it.wasError && it.elapsedMs > 0L }
-            .groupBy { it.payload }
-
-        var bestPayload: String = ""
-        var bestObserved = 0L
-        var bestConfirmations = 0
-
-        for ((payload, runs) in byPayload) {
-            val slowRuns = runs.filter {
-                it.elapsedMs >= threshold &&
-                    it.elapsedMs > baselineCeiling
+    suspend fun test(
+        url: String,
+        payload: String = Constants.Payloads.TIME_BASED_SLEEP,
+        expectedDelayMs: Long = DEFAULT_SLEEP_TIME_MS
+    ): TimeTestResult {
+        return withContext(Dispatchers.IO) {
+            val responseTime = measureTimeMillis {
+                // Simulate HTTP request with payload
+                // In real implementation, this would make an actual HTTP call
+                simulateDelayedRequest(url, payload, expectedDelayMs)
             }
-            if (slowRuns.size >= 2 && slowRuns.size > bestConfirmations) {
-                bestPayload = payload
-                bestObserved = slowRuns.map { it.elapsedMs }.maxOrNull() ?: 0L
-                bestConfirmations = slowRuns.size
-            }
-        }
-
-        if (bestConfirmations < 2 || bestPayload.isEmpty()) {
-            val fallback = probes.maxByOrNull { it.elapsedMs }
-            return Detection(
-                isHit = false,
-                baselineMs = baseline.elapsedMs,
-                observedMs = fallback?.elapsedMs ?: 0L,
-                deltaMs = (fallback?.elapsedMs ?: 0L) - baseline.elapsedMs,
-                confirmations = bestConfirmations,
-                payload = bestPayload,
-                excerpt = ""
+            
+            val timeDifference = responseTime - expectedDelayMs
+            val isWithinTolerance = timeDifference >= -TOLERANCE_MS && timeDifference <= TOLERANCE_MS
+            
+            // If response took significantly longer than expected, it's likely vulnerable
+            val isVulnerable = responseTime >= expectedDelayMs + TOLERANCE_MS
+            
+            val confidence = calculateConfidence(responseTime, expectedDelayMs, isVulnerable)
+            
+            TimeTestResult(
+                isVulnerable = isVulnerable,
+                confidence = confidence,
+                responseTimeMs = responseTime,
+                expectedDelayMs = expectedDelayMs,
+                timeDifferenceMs = timeDifference,
+                isWithinTolerance = isWithinTolerance
             )
         }
-
-        val delta = bestObserved - baseline.elapsedMs
-        val excerpt = buildExcerpt(baseline.elapsedMs, bestObserved, bestPayload, bestConfirmations)
-
-        return Detection(
-            isHit = true,
-            baselineMs = baseline.elapsedMs,
-            observedMs = bestObserved,
-            deltaMs = delta,
-            confirmations = bestConfirmations,
-            payload = bestPayload,
-            excerpt = excerpt
-        )
     }
 
-    /**
-     * Convenience: single-pair check used by the quick-sweep pass. Weaker than
-     * [detect] (only one confirmation) — treat the result as a lead, not a hit.
-     */
-    fun probeOnce(baseline: Probe, candidate: Probe): Detection {
-        if (baseline.wasError || candidate.wasError) {
-            return emptyDetection(baseline, candidate)
+    suspend fun testWithActualRequest(
+        requestFunction: suspend () -> Unit,
+        expectedDelayMs: Long = DEFAULT_SLEEP_TIME_MS
+    ): TimeTestResult {
+        return withContext(Dispatchers.IO) {
+            val responseTime = measureTimeMillis {
+                requestFunction()
+            }
+            
+            val timeDifference = responseTime - expectedDelayMs
+            val isWithinTolerance = timeDifference >= -TOLERANCE_MS && timeDifference <= TOLERANCE_MS
+            val isVulnerable = responseTime >= expectedDelayMs + TOLERANCE_MS
+            
+            val confidence = calculateConfidence(responseTime, expectedDelayMs, isVulnerable)
+            
+            TimeTestResult(
+                isVulnerable = isVulnerable,
+                confidence = confidence,
+                responseTimeMs = responseTime,
+                expectedDelayMs = expectedDelayMs,
+                timeDifferenceMs = timeDifference,
+                isWithinTolerance = isWithinTolerance
+            )
         }
-        val delta = candidate.elapsedMs - baseline.elapsedMs
-        val threshold = Constants.TIME_BASED_MIN_DELTA_MS
-        val baselineCeiling = (baseline.elapsedMs * 3L).coerceAtLeast(1_500L)
-        val isHit = candidate.elapsedMs >= threshold && candidate.elapsedMs > baselineCeiling
-
-        return Detection(
-            isHit = isHit,
-            baselineMs = baseline.elapsedMs,
-            observedMs = candidate.elapsedMs,
-            deltaMs = delta,
-            confirmations = if (isHit) 1 else 0,
-            payload = candidate.payload,
-            excerpt = if (isHit) {
-                buildExcerpt(baseline.elapsedMs, candidate.elapsedMs, candidate.payload, 1)
-            } else ""
-        )
     }
 
-    /**
-     * Helper: given a list of same-payload runs, return the median elapsedMs.
-     * Median (not mean) — one GC pause or radio wake shouldn't skew the read.
-     */
-    fun medianElapsed(probes: List<Probe>): Long {
-        val times = probes.filter { !it.wasError }.map { it.elapsedMs }.sorted()
-        if (times.isEmpty()) return 0L
-        val mid = times.size / 2
-        return if (times.size % 2 == 0) {
-            (times[mid - 1] + times[mid]) / 2L
+    private fun calculateConfidence(
+        responseTime: Long,
+        expectedDelay: Long,
+        isVulnerable: Boolean
+    ): Double {
+        return if (!isVulnerable) {
+            0.0
         } else {
-            times[mid]
+            // Higher confidence for responses that are closer to expected delay
+            val timeRatio = responseTime.toDouble() / expectedDelay.toDouble()
+            
+            when {
+                timeRatio >= 2.0 -> 0.95  // Response took at least 2x expected time
+                timeRatio >= 1.5 -> 0.85
+                timeRatio >= 1.2 -> 0.70
+                timeRatio >= 1.0 -> 0.50
+                else -> 0.30
+            }
         }
     }
 
-    // ------------------------------------------------------------------
-    // Internals
-    // ------------------------------------------------------------------
+    private suspend fun simulateDelayedRequest(url: String, payload: String, delayMs: Long) {
+        // Simulate a delayed response for testing
+        // In real implementation, this would be an actual HTTP request
+        if (payload.contains("SLEEP") || payload.contains("sleep")) {
+            withContext(Dispatchers.IO) {
+                kotlin.runCatching {
+                    Thread.sleep(delayMs)
+                }
+            }
+        } else {
+            // Normal request without delay
+            withContext(Dispatchers.IO) {
+                Thread.sleep(100) // Simulate network latency
+            }
+        }
+    }
 
-    private fun emptyDetection(baseline: Probe, candidate: Probe?): Detection = Detection(
-        isHit = false,
-        baselineMs = baseline.elapsedMs,
-        observedMs = candidate?.elapsedMs ?: 0L,
-        deltaMs = abs((candidate?.elapsedMs ?: 0L) - baseline.elapsedMs),
-        confirmations = 0,
-        payload = candidate?.payload.orEmpty(),
-        excerpt = ""
+    suspend fun testMultiplePayloads(
+        url: String,
+        payloads: List<String> = SqliPayloadTemplates.TIME_BASED_PAYLOADS,
+        expectedDelayMs: Long = DEFAULT_SLEEP_TIME_MS
+    ): List<TimeTestResult> {
+        return payloads.map { payload ->
+            test(url, payload, expectedDelayMs)
+        }
+    }
+
+    fun aggregateResults(results: List<TimeTestResult>): AggregatedTimeResult {
+        val vulnerableCount = results.count { it.isVulnerable }
+        val totalCount = results.size
+        
+        val avgConfidence = if (totalCount > 0) {
+            results.map { it.confidence }.average()
+        } else {
+            0.0
+        }
+        
+        val avgResponseTime = if (totalCount > 0) {
+            results.map { it.responseTimeMs }.average().toLong()
+        } else {
+            0L
+        }
+        
+        val avgTimeDifference = if (totalCount > 0) {
+            results.map { it.timeDifferenceMs }.average().toLong()
+        } else {
+            0L
+        }
+        
+        return AggregatedTimeResult(
+            isVulnerable = vulnerableCount > totalCount / 2,
+            confidence = if (totalCount > 0) vulnerableCount.toDouble() / totalCount else 0.0,
+            testCount = totalCount,
+            positiveCount = vulnerableCount,
+            averageConfidence = avgConfidence,
+            averageResponseTimeMs = avgResponseTime,
+            averageTimeDifferenceMs = avgTimeDifference
+        )
+    }
+
+    suspend fun verifyWithDoubleTest(
+        url: String,
+        payload: String,
+        expectedDelayMs: Long = DEFAULT_SLEEP_TIME_MS
+    ): VerifiedTimeResult {
+        // First test with the time-based payload
+        val firstResult = test(url, payload, expectedDelayMs)
+        
+        // Second test with a non-time-based payload (should be fast)
+        val nonTimePayload = SqliPayloadTemplates.ERROR_BASED_PAYLOADS.first()
+        val secondResponseTime = measureTimeMillis {
+            simulateDelayedRequest(url, nonTimePayload, 0)
+        }
+        
+        // If first test was slow and second was fast, it's likely vulnerable
+        val timeDifference = firstResult.responseTimeMs - secondResponseTime
+        val isVulnerable = firstResult.isVulnerable && timeDifference >= expectedDelayMs - TOLERANCE_MS
+        
+        return VerifiedTimeResult(
+            isVulnerable = isVulnerable,
+            confidence = if (isVulnerable) firstResult.confidence * 0.9 else 0.0,
+            firstTest = firstResult,
+            secondResponseTimeMs = secondResponseTime,
+            timeDifferenceMs = timeDifference
+        )
+    }
+
+    data class AggregatedTimeResult(
+        val isVulnerable: Boolean,
+        val confidence: Double,
+        val testCount: Int,
+        val positiveCount: Int,
+        val averageConfidence: Double,
+        val averageResponseTimeMs: Long,
+        val averageTimeDifferenceMs: Long
     )
 
-    private fun buildExcerpt(
-        baselineMs: Long,
-        observedMs: Long,
-        payload: String,
-        confirmations: Int
-    ): String {
-        val delta = observedMs - baselineMs
-        return buildString(160) {
-            append("time-based confirmation: baseline=")
-            append(baselineMs).append("ms observed=").append(observedMs)
-            append("ms delta=+").append(delta).append("ms confirmations=")
-            append(confirmations).append(" payload=")
-            append(payload.take(128))
-        }
-    }
+    data class VerifiedTimeResult(
+        val isVulnerable: Boolean,
+        val confidence: Double,
+        val firstTest: TimeTestResult,
+        val secondResponseTimeMs: Long,
+        val timeDifferenceMs: Long
+    )
 }

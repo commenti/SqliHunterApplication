@@ -7,91 +7,68 @@ import androidx.room.Query
 import androidx.room.Transaction
 import androidx.room.Update
 import com.yourapp.sqliautohunter.data.local.database.entity.SearchQueueEntity
+import com.yourapp.sqliautohunter.data.local.database.entity.ScanStatus
 import kotlinx.coroutines.flow.Flow
 
-/**
- * DAO for the persistent scan queue.
- *
- * Hot path: `claimNextPending(limit)` inside a transaction — pulls the oldest
- * N pending rows and flips them to `testing` so concurrent workers never pick
- * the same row twice. Batch size is controlled by the caller
- * (Constants.QUEUE_BATCH_SIZE) — never load the entire queue into RAM.
- */
 @Dao
 interface SearchQueueDao {
 
     @Insert(onConflict = OnConflictStrategy.IGNORE)
-    suspend fun insert(entity: SearchQueueEntity): Long
+    suspend fun insert(queueItem: SearchQueueEntity): Long
 
     @Insert(onConflict = OnConflictStrategy.IGNORE)
-    suspend fun insertAll(entities: List<SearchQueueEntity>): List<Long>
+    suspend fun insertAll(items: List<SearchQueueEntity>): List<Long>
+
+    @Query("SELECT * FROM search_queue WHERE status = 'PENDING' ORDER BY timestamp ASC LIMIT :limit")
+    suspend fun getPending(limit: Int): List<SearchQueueEntity>
+
+    @Query("SELECT * FROM search_queue WHERE status = 'TESTING' ORDER BY timestamp ASC")
+    suspend fun getTesting(): List<SearchQueueEntity>
+
+    @Query("SELECT * FROM search_queue WHERE keywordSource = :keyword ORDER BY timestamp ASC")
+    fun getByKeyword(keyword: String): Flow<List<SearchQueueEntity>>
+
+    @Query("SELECT * FROM search_queue ORDER BY timestamp DESC")
+    fun getAll(): Flow<List<SearchQueueEntity>>
+
+    @Query("SELECT COUNT(*) FROM search_queue WHERE status = 'PENDING'")
+    fun getPendingCount(): Flow<Int>
+
+    @Query("SELECT COUNT(*) FROM search_queue WHERE status = 'VULNERABLE'")
+    fun getVulnerableCount(): Flow<Int>
+
+    @Query("SELECT COUNT(*) FROM search_queue WHERE status = 'TESTING'")
+    fun getTestingCount(): Flow<Int>
+
+    @Query("SELECT COUNT(*) FROM search_queue WHERE status = 'NOT_VULNERABLE'")
+    fun getNotVulnerableCount(): Flow<Int>
+
+    @Query("SELECT COUNT(*) FROM search_queue WHERE status = 'ERROR'")
+    fun getErrorCount(): Flow<Int>
+
+    @Query("SELECT COUNT(*) FROM search_queue")
+    fun getTotalCount(): Flow<Int>
 
     @Update
-    suspend fun update(entity: SearchQueueEntity)
+    suspend fun update(queueItem: SearchQueueEntity)
 
-    @Query("SELECT * FROM search_queue WHERE id = :id LIMIT 1")
-    suspend fun getById(id: Long): SearchQueueEntity?
-
-    @Query(
-        """
-        SELECT * FROM search_queue
-        WHERE status = :status
-        ORDER BY timestamp ASC
-        LIMIT :limit
-        """
-    )
-    suspend fun peekByStatus(status: String, limit: Int): List<SearchQueueEntity>
-
-    /**
-     * Atomically claim up to [limit] pending rows for testing.
-     * Returns the claimed rows so the caller can dispatch them to workers.
-     */
     @Transaction
-    suspend fun claimNextPending(limit: Int): List<SearchQueueEntity> {
-        val batch = peekByStatus(SearchQueueEntity.STATUS_PENDING, limit)
-        if (batch.isEmpty()) return emptyList()
-        val claimed = batch.map { it.copy(status = SearchQueueEntity.STATUS_TESTING) }
-        updateAll(claimed)
-        return claimed
+    suspend fun updateStatus(id: Long, status: ScanStatus) {
+        update(SearchQueueEntity(id, "", "", status))
     }
 
-    @Update
-    suspend fun updateAll(entities: List<SearchQueueEntity>)
-
     @Query("UPDATE search_queue SET status = :status WHERE id = :id")
-    suspend fun setStatus(id: Long, status: String)
+    suspend fun updateStatusDirect(id: Long, status: String)
 
-    @Query("UPDATE search_queue SET status = :status WHERE id IN (:ids)")
-    suspend fun setStatusBatch(ids: List<Long>, status: String)
-
-    @Query("SELECT COUNT(*) FROM search_queue WHERE status = :status")
-    suspend fun countByStatus(status: String): Int
-
-    @Query("SELECT COUNT(*) FROM search_queue WHERE status = :status")
-    fun observeCountByStatus(status: String): Flow<Int>
-
-    @Query("SELECT * FROM search_queue WHERE status = :status ORDER BY timestamp ASC LIMIT :limit")
-    fun observeByStatus(status: String, limit: Int): Flow<List<SearchQueueEntity>>
-
-    @Query("SELECT * FROM search_queue ORDER BY timestamp DESC LIMIT :limit")
-    fun observeRecent(limit: Int): Flow<List<SearchQueueEntity>>
-
-    @Query("SELECT COUNT(*) FROM search_queue")
-    suspend fun totalCount(): Int
-
-    @Query("SELECT COUNT(*) FROM search_queue")
-    fun observeTotalCount(): Flow<Int>
-
-    /**
-     * On service restart: any row stuck in `testing` from a previous process
-     * gets reset to `pending` so it can be retried.
-     */
-    @Query("UPDATE search_queue SET status = 'pending' WHERE status = 'testing'")
-    suspend fun requeueStuckTesting(): Int
-
-    @Query("DELETE FROM search_queue WHERE status IN (:statuses)")
-    suspend fun deleteByStatuses(statuses: List<String>): Int
+    @Query("DELETE FROM search_queue WHERE id = :id")
+    suspend fun delete(id: Long)
 
     @Query("DELETE FROM search_queue")
-    suspend fun clearAll()
+    suspend fun deleteAll()
+
+    @Query("SELECT * FROM search_queue WHERE status IN ('PENDING', 'TESTING') ORDER BY timestamp ASC LIMIT :limit")
+    suspend fun getActiveQueue(limit: Int): List<SearchQueueEntity>
+
+    @Query("SELECT * FROM search_queue WHERE status = 'PENDING' ORDER BY timestamp ASC")
+    suspend fun getAllPending(): List<SearchQueueEntity>
 }

@@ -1,0 +1,120 @@
+name: Nightly Build
+
+on:
+  schedule:
+    # Run every day at 2:00 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: nightly-build
+  cancel-in-progress: true
+
+env:
+  JAVA_VERSION: '17'
+
+jobs:
+  nightly-build:
+    name: Nightly Build & Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: 'temurin'
+          cache: 'gradle'
+
+      - name: Cache Gradle
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-nightly-${{ runner.os }}-${{ hashFiles('**/*.gradle.kts') }}
+          restore-keys: gradle-nightly-${{ runner.os }}
+
+      - name: Cache Android SDK
+        uses: actions/cache@v3
+        with:
+          path: /usr/local/android-sdk
+          key: android-sdk-nightly-${{ hashFiles('.github/workflows/nightly-build.yml') }}
+
+      - name: Install Android SDK
+        run: |
+          # Install if not cached
+          if [ ! -d "/usr/local/android-sdk/cmdline-tools/latest" ]; then
+            wget -q -O android-cmdline-tools.zip https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip
+            unzip -q android-cmdline-tools.zip -d /usr/local/
+            mv /usr/local/cmdline-tools /usr/local/android-sdk/cmdline-tools/latest
+          fi
+          
+          yes | /usr/local/android-sdk/cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null
+          /usr/local/android-sdk/cmdline-tools/latest/bin/sdkmanager "platforms;android-34" > /dev/null
+          /usr/local/android-sdk/cmdline-tools/latest/bin/sdkmanager "build-tools;34.0.0" > /dev/null
+          /usr/local/android-sdk/cmdline-tools/latest/bin/sdkmanager "platform-tools" > /dev/null
+
+      - name: Set up environment
+        run: |
+          echo "ANDROID_HOME=/usr/local/android-sdk" >> $GITHUB_ENV
+          echo "ANDROID_SDK_ROOT=/usr/local/android-sdk" >> $GITHUB_ENV
+
+      - name: Grant execute permission
+        run: chmod +x ./gradlew
+
+      - name: Clean build
+        run: ./gradlew clean --no-daemon --stacktrace
+
+      - name: Build release APK
+        run: ./gradlew assembleRelease --no-daemon --stacktrace --info
+
+      - name: Run tests
+        run: ./gradlew testDebugUnitTest --no-daemon --stacktrace --continue
+
+      - name: Run lint
+        run: ./gradlew lintDebug --no-daemon --stacktrace --continue
+
+      - name: Upload nightly build
+        uses: actions/upload-artifact@v4
+        with:
+          name: sqli-hunter-nightly-${{ github.run_id }}
+          path: |
+            app/build/outputs/apk/release/
+            app/build/reports/
+          compression-level: 9
+          retention-days: 14
+
+      - name: Create nightly release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: SQLi Hunter Nightly Build
+          tag_name: nightly-${{ github.run_id }}
+          body: |
+            ## Nightly Build ${{ github.run_id }}
+            
+            Automated nightly build from commit ${{ github.sha }}
+            
+            **Build Time:** ${{ github.run_started_at }}
+            **Status:** ${{ job.status }}
+          files: app/build/outputs/apk/release/*.apk
+          draft: false
+          prerelease: true
+          fail_on_unmatched_files: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Send notification
+        uses: rtCamp/action-slack-notify@v2
+        if: always()
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+          SLACK_COLOR: ${{ job.status == 'success' && '#2EB67D' || '#E01E5A' }}
+          SLACK_TITLE: "Nightly Build ${{ job.status }}"
+          SLACK_MESSAGE: "SQLi Hunter nightly build #${{ github.run_id }} completed with status: ${{ job.status }}"

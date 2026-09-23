@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools">
+    
+    <!-- Base application theme. -->
+    <style name="Base.Theme.SqliHunterApplication" parent="Theme.Material3.DayNight.NoActionBar">
+        <!-- Customize your theme here. -->
+        <item name="colorScheme">@style/ThemeColorScheme</item>
+        <item name="android:windowBackground">@color/background</item>
+        <item name="android:colorBackground">@color/background</item>
+        <item name="android:colorForeground">@color/text_primary</item>
+        <item name="android:textColorPrimary">@color/text_primary</item>
+        <item name="android:textColorSecondary">@color/text_secondary</item>
+    </style>
+    
+    <!-- Theme color scheme -->
+    <style name="ThemeColorScheme" parent="">
+        <item name="primary">@color/primary</item>
+        <item name="primaryContainer">@color/primary_dark</item>
+        <item name="secondary">@color/secondary</item>
+        <item name="secondaryContainer">@color/secondary_dark</item>
+        <item name="tertiary">@color/secondary_light</item>
+        <item name="surface">@color/surface</item>
+        <item name="surfaceVariant">@color/surface_variant</item>
+        <item name="background">@color/background</item>
+        <item name="error">@color/error</item>
+        <item name="errorContainer">@color/error_container</item>
+        <item name="onPrimary">@color/text_primary</item>
+        <item name="onSecondary">@color/text_primary</item>
+        <item name="onTertiary">@color/text_primary</item>
+        <item name="onSurface">@color/text_primary</item>
+        <item name="onSurfaceVariant">@color/text_secondary</item>
+        <item name="onBackground">@color/text_primary</item>
+        <item name="onError">@color/text_primary</item>
+        <item name="onErrorContainer">@color/error</item>
+        <item name="outline">@color/outline</item>
+        <item name="outlineVariant">@color/outline_variant</item>
+    </style>
+    
+    <style name="Theme.SqliHunterApplication" parent="Base.Theme.SqliHunterApplication">
+        <!-- Primary brand colors. -->
+        <item name="colorPrimary">@color/primary</item>
+        <item name="colorPrimaryDark">@color/primary_dark</item>
+        <item name="colorPrimaryLight">@color/primary_light</item>
+        <item name="colorAccent">@color/secondary</item>
+        <item name="colorControlNormal">@color/text_primary</item>
+        <item name="colorControlActivated">@color/primary</item>
+        <item name="colorControlHighlight">@color/primary_light</item>
+        
+        <!-- Status bar -->
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">false</item>
+        
+        <!-- Window -->
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowTranslucentStatus">true</item>
+        <item name="android:windowTranslucentNavigation">true</item>
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
+    </style>
+</resources>

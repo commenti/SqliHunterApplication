@@ -1,0 +1,82 @@
+# Android
+*.iml
+.idea
+*.iws
+*.ipr
+
+# Build outputs
+/build/
+/out/
+
+# Gradle
+.gradle/
+build/
+
+# Local properties
+local.properties
+
+# Keystores
+*.jks
+*.keystore
+
+# Signing files
+signing.properties
+
+# Android Studio
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# Android profiles
+*.avd
+
+# Logs
+*.log
+
+# Cache
+.cache/
+
+# Environment
+.env
+.env.local
+
+# DS_Store
+.DS_Store
+
+# Thumbs
+.Thumbs.db
+
+# Node (if used)
+node_modules/
+
+# Python (if used)
+__pycache__/
+*.py[cod]
+
+# Testing
+.coverage
+
+# IDE
+.idea/
+*.swp
+*.swo
+*~
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Gradle wrapper
+!gradle/wrapper/gradle-wrapper.jar
+!gradle/wrapper/gradle-wrapper.properties
+
+# Build artifacts
+*.apk
+*.aab
+
+# Local history
+.history/
+
+# Crashlytics
+crashlytics-build.properties

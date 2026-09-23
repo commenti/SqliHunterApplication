@@ -1,92 +1,81 @@
 package com.yourapp.sqliautohunter.domain.usecase
 
-import com.yourapp.sqliautohunter.domain.model.DorkCategory
 import com.yourapp.sqliautohunter.domain.model.DorkTemplate
-import javax.inject.Inject
+import com.yourapp.sqliautohunter.util.Constants
 
-/**
- * Turn a list of user keywords into a list of concrete dork query strings.
- *
- * Contract:
- *   - One dork per (keyword, template) pair.
- *   - Templates whose `requiresExactParam` is set are only included when the
- *     keyword looks like a parameter name (matches /^[a-z_][a-z0-9_]*$/i).
- *   - Duplicates after case-folding are collapsed.
- *   - Order is deterministic: keyword outer loop, template order inner.
- *
- * Pure function — no IO, no state. Safe to call from any thread.
- */
-class GenerateDorkQueriesUseCase @Inject constructor() {
+class GenerateDorkQueriesUseCase {
 
-    data class Request(
-        val keywords: List<String>,
-        val templateIds: List<String>? = null,
-        val categories: Set<DorkCategory>? = null,
-        val maxPerKeyword: Int = Int.MAX_VALUE
-    )
-
-    data class Result(
-        val queries: List<String>,
-        val byKeyword: Map<String, List<String>>
-    )
-
-    operator fun invoke(request: Request): Result {
-        val keywords = request.keywords
-            .asSequence()
-            .map { it.trim() }
-            .filter { it.isNotEmpty() }
-            .distinct()
-            .toList()
-
-        if (keywords.isEmpty()) return Result(emptyList(), emptyMap())
-
-        val templates = selectTemplates(request)
-        if (templates.isEmpty()) return Result(emptyList(), emptyMap())
-
-        val out = LinkedHashMap<String, MutableList<String>>(keywords.size)
-        val seen = HashSet<String>(keywords.size * templates.size)
-
-        for (kw in keywords) {
-            val bucket = ArrayList<String>(templates.size)
-            val isParamLike = PARAM_NAME_REGEX.matches(kw)
-
-            for (t in templates) {
-                if (t.requiresExactParam && !isParamLike) continue
-                val rendered = t.render(kw)
-                val key = rendered.lowercase()
-                if (!seen.add(key)) continue
-                bucket += rendered
-                if (bucket.size >= request.maxPerKeyword) break
+    operator fun invoke(
+        keywords: List<String>,
+        templates: List<DorkTemplate> = DorkTemplate.DEFAULT_TEMPLATES,
+        searchEngines: List<String> = listOf("site:")
+    ): List<String> {
+        val queries = mutableListOf<String>()
+        
+        keywords.forEach { keyword ->
+            templates.forEach { template ->
+                val query = buildQuery(keyword, template.template, searchEngines)
+                queries.add(query)
             }
-
-            if (bucket.isNotEmpty()) out[kw] = bucket
         }
-
-        val flat = out.values.flatten()
-        return Result(queries = flat, byKeyword = out)
+        
+        return queries.distinct()
     }
 
-    private fun selectTemplates(request: Request): List<DorkTemplate> {
-        val all = DorkTemplate.DEFAULT
-        var filtered: List<DorkTemplate> = all
-
-        request.categories?.let { cats ->
-            if (cats.isNotEmpty()) {
-                filtered = filtered.filter { it.category in cats }
-            }
+    private fun buildQuery(
+        keyword: String,
+        template: String,
+        searchEngines: List<String>
+    ): String {
+        val cleanKeyword = keyword.trim()
+        
+        // If template already contains the keyword or is a site search
+        if (template.contains("site:") && !cleanKeyword.startsWith("http")) {
+            return "$template$cleanKeyword $template"
         }
-
-        request.templateIds?.let { ids ->
-            if (ids.isNotEmpty()) {
-                val idSet = ids.toHashSet()
-                filtered = filtered.filter { it.id in idSet }
-            }
+        
+        // If template has a parameter
+        if (template.contains("=")) {
+            return "$template$cleanKeyword"
         }
-
-        return filtered
+        
+        // Default: combine with space
+        return "$cleanKeyword $template"
     }
 
-    private companion object {
-        val PARAM_NAME_REGEX = Regex("^[a-z_][a-z0-9_]*$", RegexOption.IGNORE_CASE)
+    fun generateSiteSpecificQueries(
+        keyword: String,
+        site: String,
+        templates: List<String> = Constants.DORK_TEMPLATES
+    ): List<String> {
+        return templates.map { template ->
+            val baseQuery = if (template.contains("site:")) {
+                template.replace("site:", "site:$site")
+            } else {
+                "site:$site $template"
+            }
+            "$baseQuery$keyword"
+        }.distinct()
+    }
+
+    fun generateQueriesForUrl(url: String): List<String> {
+        val domain = extractDomain(url)
+        return generateSiteSpecificQueries("", domain)
+    }
+
+    private fun extractDomain(url: String): String {
+        return when {
+            url.startsWith("http://") -> url.substring(7).substringBefore("/")
+            url.startsWith("https://") -> url.substring(8).substringBefore("/")
+            else -> url.substringBefore("/")
+        }
+    }
+
+    fun generateBatchQueries(
+        keywords: List<String>,
+        batchSize: Int = 10
+    ): List<List<String>> {
+        val allQueries = invoke(keywords)
+        return allQueries.chunked(batchSize)
     }
 }

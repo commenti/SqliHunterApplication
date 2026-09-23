@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">SQLi Hunter</string>
+    <string name="app_description">Automated SQL Injection Vulnerability Scanner</string>
+    
+    <!-- Common -->
+    <string name="ok">OK</string>
+    <string name="cancel">Cancel</string>
+    <string name="save">Save</string>
+    <string name="clear">Clear</string>
+    <string name="delete">Delete</string>
+    <string name="back">Back</string>
+    <string name="next">Next</string>
+    <string name="previous">Previous</string>
+    
+    <!-- Actions -->
+    <string name="start_scan">Start Scan</string>
+    <string name="stop_scan">Stop Scan</string>
+    <string name="pause_scan">Pause Scan</string>
+    <string name="resume_scan">Resume Scan</string>
+    <string name="test_url">Test URL</string>
+    <string name="quick_test">Quick Test</string>
+    <string name="full_test">Full Test</string>
+    
+    <!-- Status -->
+    <string name="scanning">Scanning...</string>
+    <string name="paused">Paused</string>
+    <string name="stopped">Stopped</string>
+    <string name="running">Running</string>
+    <string name="completed">Completed</string>
+    <string name="error">Error</string>
+    <string name="warning">Warning</string>
+    <string name="success">Success</string>
+    
+    <!-- Vulnerability -->
+    <string name="vulnerable">Vulnerable</string>
+    <string name="not_vulnerable">Not Vulnerable</string>
+    <string name="unknown">Unknown</string>
+    <string name="testing">Testing</string>
+    <string name="pending">Pending</string>
+    
+    <!-- Confidence -->
+    <string name="confidence_high">High</string>
+    <string name="confidence_medium">Medium</string>
+    <string name="confidence_low">Low</string>
+    
+    <!-- Types -->
+    <string name="type_error_based">Error Based</string>
+    <string name="type_boolean_based">Boolean Based</string>
+    <string name="type_time_based">Time Based</string>
+    <string name="type_union_based">Union Based</string>
+    
+    <!-- Errors -->
+    <string name="error_no_keywords">Please enter keywords</string>
+    <string name="error_invalid_url">Invalid URL format</string>
+    <string name="error_blacklisted">Domain is blacklisted</string>
+    <string name="error_already_tested">Already tested</string>
+    <string name="error_scan_failed">Scan failed</string>
+    <string name="error_test_failed">Test failed</string>
+    <string name="error_no_results">No results found</string>
+    <string name="error_loading">Loading error</string>
+    
+    <!-- Notifications -->
+    <string name="notification_service_running">Service is running</string>
+    <string name="notification_scan_complete">Scan complete</string>
+    <string name="notification_scan_error">Scan error</string>
+    <string name="notification_progress">Tested: %1$d | Vulnerable: %2$d | Queue: %3$d</string>
+    
+    <!-- Permissions -->
+    <string name="permission_notification">Notification permission required</string>
+    <string name="permission_storage">Storage permission required</string>
+    <string name="permission_battery">Battery optimization exemption required</string>
+    
+    <!-- Settings -->
+    <string name="settings_title">Settings</string>
+    <string name="settings_scanning">Scanning Settings</string>
+    <string name="settings_proxy">Proxy Settings</string>
+    <string name="settings_blacklist">Domain Blacklist</string>
+    <string name="settings_thread_count">Thread Count</string>
+    <string name="settings_delay">Delay Between Requests</string>
+    <string name="settings_bulk_mode">Bulk Mode</string>
+    <string name="settings_auto_export">Auto Export</string>
+    <string name="settings_proxy_list">Proxy List</string>
+    <string name="settings_blacklist_domains">Blacklist Domains</string>
+    <string name="settings_reset_defaults">Reset to Defaults</string>
+    <string name="settings_save_all">Save All</string>
+    
+    <!-- Placeholders -->
+    <string name="placeholder_keywords">Enter keywords (comma or newline separated)</string>
+    <string name="placeholder_url">https://example.com/page.php?id=1</string>
+    <string name="placeholder_proxy">proxy.example.com:8080</string>
+    <string name="placeholder_blacklist">.gov,.mil,bank,admin</string>
+    
+    <!-- Tooltips -->
+    <string name="tooltip_start_scan">Start scanning for vulnerabilities</string>
+    <string name="tooltip_stop_scan">Stop the current scan</string>
+    <string name="tooltip_pause_scan">Pause the current scan</string>
+    <string name="tooltip_resume_scan">Resume the paused scan</string>
+    <string name="tooltip_test_url">Test this URL for vulnerabilities</string>
+</resources>

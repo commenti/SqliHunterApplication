@@ -6,76 +6,50 @@ import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Transaction
 import com.yourapp.sqliautohunter.data.local.database.entity.TestedUrlHashEntity
-import kotlinx.coroutines.flow.Flow
 
-/**
- * DAO for the deduplication ledger.
- *
- * Race-safety contract: `insertIfAbsent` uses OnConflictStrategy.IGNORE on the
- * PK (url_hash). A return of -1L means the row already existed — caller treats
- * that as "already tested" and surfaces the existing row. Concurrent workers
- * racing on the same normalized URL resolve deterministically: exactly one gets
- * a real rowId, everyone else gets -1L.
- *
- * Do NOT split check + insert across two calls outside a transaction — that
- * reintroduces the race this DAO exists to close.
- */
 @Dao
 interface TestedUrlHashDao {
 
-    @Insert(onConflict = OnConflictStrategy.IGNORE)
-    suspend fun insertIfAbsent(entity: TestedUrlHashEntity): Long
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(hashEntity: TestedUrlHashEntity)
 
-    @Query("SELECT * FROM tested_urls_hash WHERE url_hash = :hash LIMIT 1")
+    @Query("SELECT * FROM tested_urls_hash WHERE urlHash = :hash")
     suspend fun getByHash(hash: String): TestedUrlHashEntity?
 
-    @Query("SELECT EXISTS(SELECT 1 FROM tested_urls_hash WHERE url_hash = :hash)")
+    @Query("SELECT * FROM tested_urls_hash WHERE originalUrl = :url")
+    suspend fun getByUrl(url: String): TestedUrlHashEntity?
+
+    @Query("SELECT EXISTS(SELECT 1 FROM tested_urls_hash WHERE urlHash = :hash)")
     suspend fun exists(hash: String): Boolean
 
-    @Query("SELECT url_hash FROM tested_urls_hash WHERE url_hash IN (:hashes)")
-    suspend fun existingHashes(hashes: List<String>): List<String>
+    @Query("SELECT originalUrl FROM tested_urls_hash WHERE urlHash = :hash")
+    suspend fun getOriginalUrl(hash: String): String?
 
-    @Query("SELECT COUNT(*) FROM tested_urls_hash")
-    suspend fun totalCount(): Int
+    @Query("SELECT testResult FROM tested_urls_hash WHERE urlHash = :hash")
+    suspend fun getTestResult(hash: String): String?
 
-    @Query("SELECT COUNT(*) FROM tested_urls_hash WHERE test_result = :result")
-    suspend fun countByResult(result: String): Int
-
-    @Query("SELECT COUNT(*) FROM tested_urls_hash WHERE test_result = :result")
-    fun observeCountByResult(result: String): Flow<Int>
-
-    @Query(
-        """
-        SELECT * FROM tested_urls_hash
-        ORDER BY tested_at DESC
-        LIMIT :limit
-        """
-    )
-    fun observeRecent(limit: Int): Flow<List<TestedUrlHashEntity>>
-
-    @Query("DELETE FROM tested_urls_hash WHERE tested_at < :cutoffEpochMs")
-    suspend fun pruneOlderThan(cutoffEpochMs: Long): Int
-
-    @Query("DELETE FROM tested_urls_hash")
-    suspend fun clearAll()
-
-    /**
-     * Transactional check-and-insert. Returns the inserted rowId (>= 0) if this
-     * call won the insert race, or the existing row if it was already present.
-     * Callers use `isNew` to decide whether to dispatch the URL to the queue.
-     */
     @Transaction
-    suspend fun checkAndInsert(entity: TestedUrlHashEntity): CheckAndInsertResult {
-        val rowId = insertIfAbsent(entity)
-        return if (rowId != -1L) {
-            CheckAndInsertResult(isNew = true, existing = null)
-        } else {
-            CheckAndInsertResult(isNew = false, existing = getByHash(entity.urlHash))
+    suspend fun checkAndInsert(hash: String, originalUrl: String, testResult: String, payloadTypesTried: String): Boolean {
+        val exists = exists(hash)
+        if (!exists) {
+            insert(TestedUrlHashEntity(hash, originalUrl, testResult, System.currentTimeMillis(), payloadTypesTried))
+            return true
         }
+        return false
     }
 
-    data class CheckAndInsertResult(
-        val isNew: Boolean,
-        val existing: TestedUrlHashEntity?
-    )
+    @Query("DELETE FROM tested_urls_hash WHERE urlHash = :hash")
+    suspend fun delete(hash: String)
+
+    @Query("DELETE FROM tested_urls_hash")
+    suspend fun deleteAll()
+
+    @Query("SELECT COUNT(*) FROM tested_urls_hash")
+    suspend fun getCount(): Int
+
+    @Query("SELECT * FROM tested_urls_hash ORDER BY testedAt DESC")
+    suspend fun getAll(): List<TestedUrlHashEntity>
+
+    @Query("SELECT * FROM tested_urls_hash WHERE testResult = 'vulnerable' ORDER BY testedAt DESC")
+    suspend fun getAllVulnerable(): List<TestedUrlHashEntity>
 }

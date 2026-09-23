@@ -1,48 +1,43 @@
 package com.yourapp.sqliautohunter.data.local.database.entity
 
-import androidx.room.ColumnInfo
 import androidx.room.Entity
-import androidx.room.Index
 import androidx.room.PrimaryKey
+import androidx.room.TypeConverters
+import com.yourapp.sqliautohunter.util.Constants
 
-/**
- * Persistent scan queue. One row per URL that has been enqueued for testing.
- *
- * Status values are constrained to [ScanStatus] string constants:
- *   pending | testing | vulnerable | not_vulnerable | error
- *
- * Index on (status, timestamp) supports the hot path: "pull next N pending rows
- * ordered by insertion time" without a full-table scan.
- */
-@Entity(
-    tableName = "search_queue",
-    indices = [
-        Index(value = ["status", "timestamp"], name = "idx_queue_status_ts"),
-        Index(value = ["url"], name = "idx_queue_url")
-    ]
-)
+@Entity(tableName = "search_queue")
+@TypeConverters(ScanStatusConverter::class)
 data class SearchQueueEntity(
     @PrimaryKey(autoGenerate = true)
-    @ColumnInfo(name = "id")
-    val id: Long = 0L,
-
-    @ColumnInfo(name = "url")
+    val id: Long = 0,
     val url: String,
-
-    @ColumnInfo(name = "keyword_source")
     val keywordSource: String,
+    val status: ScanStatus = ScanStatus.PENDING,
+    val timestamp: Long = System.currentTimeMillis()
+)
 
-    @ColumnInfo(name = "status")
-    val status: String,
+enum class ScanStatus {
+    PENDING,
+    TESTING,
+    VULNERABLE,
+    NOT_VULNERABLE,
+    ERROR
+}
 
-    @ColumnInfo(name = "timestamp")
-    val timestamp: Long
-) {
-    companion object {
-        const val STATUS_PENDING = "pending"
-        const val STATUS_TESTING = "testing"
-        const val STATUS_VULNERABLE = "vulnerable"
-        const val STATUS_NOT_VULNERABLE = "not_vulnerable"
-        const val STATUS_ERROR = "error"
+class ScanStatusConverter {
+    @androidx.room.TypeConverter
+    fun fromString(value: String): ScanStatus {
+        return when (value) {
+            "TESTING" -> ScanStatus.TESTING
+            "VULNERABLE" -> ScanStatus.VULNERABLE
+            "NOT_VULNERABLE" -> ScanStatus.NOT_VULNERABLE
+            "ERROR" -> ScanStatus.ERROR
+            else -> ScanStatus.PENDING
+        }
+    }
+
+    @androidx.room.TypeConverter
+    fun toString(status: ScanStatus): String {
+        return status.name
     }
 }

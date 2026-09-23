@@ -9,115 +9,121 @@ import android.net.Uri
 import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
-import androidx.core.app.NotificationManagerCompat
+import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 
-/**
- * Runtime permission and OS-exemption gatekeeper.
- *
- * Three buckets the app actually cares about:
- *   1. POST_NOTIFICATIONS (API 33+) — required for the foreground service
- *      notification. On API 26–32 it's implicitly granted.
- *   2. Battery optimization exemption — the service survives Doze only if the
- *      user exempts us. Request via ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS.
- *   3. Overlay / full-screen intent permissions — not used; left out.
- *
- * Everything here is read-only or intent-based. No side effects beyond
- * launching a system dialog. Callers own the activity-result flow.
- */
 object PermissionHelper {
 
-    /** Permissions the app must request at first launch. */
-    fun requiredRuntimePermissions(): List<String> {
-        val perms = mutableListOf<String>()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            perms += Manifest.permission.POST_NOTIFICATIONS
-        }
-        return perms
-    }
-
-    /** True if every required runtime permission is already granted. */
-    fun hasAllRuntimePermissions(context: Context): Boolean {
-        return requiredRuntimePermissions().all { granted(context, it) }
-    }
-
-    /** Individual check — wraps ContextCompat, returns true on pre-API-33 for POST_NOTIF. */
-    fun granted(context: Context, permission: String): Boolean {
-        if (permission == Manifest.permission.POST_NOTIFICATIONS &&
-            Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU
-        ) {
-            return true
-        }
-        return ContextCompat.checkSelfPermission(context, permission) ==
-            PackageManager.PERMISSION_GRANTED
-    }
-
-    /** True if notifications are enabled at both the app and channel level. */
-    fun notificationsEnabled(context: Context): Boolean =
-        NotificationManagerCompat.from(context).areNotificationsEnabled()
-
-    /** True if the app is already exempt from battery optimization. */
-    fun isBatteryOptimizationIgnored(context: Context): Boolean {
-        val pm = context.getSystemService(Context.POWER_SERVICE) as? PowerManager ?: return false
-        return pm.isIgnoringBatteryOptimizations(context.packageName)
-    }
-
-    /**
-     * Launch the system dialog to request battery-optimization exemption.
-     * Falls back to the settings screen if the direct intent isn't resolvable.
-     * Activity-scoped — pass the host activity, not a Context wrapper.
-     */
-    fun requestIgnoreBatteryOptimizations(activity: Activity, requestCode: Int) {
-        val pkg = activity.packageName
-        val direct = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
-            .setData(Uri.parse("package:$pkg"))
-        if (direct.resolveActivity(activity.packageManager) != null) {
-            activity.startActivityForResult(direct, requestCode)
-            return
-        }
-        val fallback = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
-        activity.startActivityForResult(fallback, requestCode)
-    }
-
-    /** Open the OS notification settings for this app — used when notif is off. */
-    fun openNotificationSettings(activity: Activity) {
-        val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
-                .putExtra(Settings.EXTRA_APP_PACKAGE, activity.packageName)
-        } else {
-            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
-                .setData(Uri.parse("package:${activity.packageName}"))
-        }
-        activity.startActivity(intent)
-    }
-
-    /** Open this app's system settings page (fallback for anything else). */
-    fun openAppSettings(activity: Activity) {
-        val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
-            .setData(Uri.parse("package:${activity.packageName}"))
-        activity.startActivity(intent)
-    }
-
-    /**
-     * True if we have enough to run the foreground service in a stable way:
-     *   - notification permission granted (or N/A)
-     *   - battery optimization ignored
-     * Used by the Dashboard banner to nudge the user toward the two prompts.
-     */
-    fun isScanReady(context: Context): Boolean =
-        hasAllRuntimePermissions(context) && isBatteryOptimizationIgnored(context)
-
-    /** Convenience for the UI: which of the two gates is currently closed? */
-    data class ReadinessGaps(
-        val missingNotificationPermission: Boolean,
-        val batteryOptimizationNotIgnored: Boolean
-    ) {
-        val any: Boolean
-            get() = missingNotificationPermission || batteryOptimizationNotIgnored
-    }
-
-    fun readGaps(context: Context): ReadinessGaps = ReadinessGaps(
-        missingNotificationPermission = !hasAllRuntimePermissions(context),
-        batteryOptimizationNotIgnored = !isBatteryOptimizationIgnored(context)
+    private val REQUIRED_PERMISSIONS = listOf(
+        Manifest.permission.INTERNET,
+        Manifest.permission.ACCESS_NETWORK_STATE,
+        Manifest.permission.FOREGROUND_SERVICE,
+        Manifest.permission.FOREGROUND_SERVICE_DATA_SYNC,
+        Manifest.permission.RECEIVE_BOOT_COMPLETED,
+        Manifest.permission.WAKE_LOCK,
+        Manifest.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS
     )
+
+    private val ANDROID_13_PERMISSIONS = listOf(
+        Manifest.permission.POST_NOTIFICATIONS
+    )
+
+    fun checkPermissions(context: Context): Boolean {
+        val required = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            REQUIRED_PERMISSIONS + ANDROID_13_PERMISSIONS
+        } else {
+            REQUIRED_PERMISSIONS
+        }
+
+        return required.all { permission ->
+            ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
+        }
+    }
+
+    fun checkAndRequestPermissions(activity: Activity, requestCode: Int) {
+        val permissionsToRequest = mutableListOf<String>()
+        
+        REQUIRED_PERMISSIONS.forEach { permission ->
+            if (ContextCompat.checkSelfPermission(activity, permission) != PackageManager.PERMISSION_GRANTED) {
+                permissionsToRequest.add(permission)
+            }
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            ANDROID_13_PERMISSIONS.forEach { permission ->
+                if (ContextCompat.checkSelfPermission(activity, permission) != PackageManager.PERMISSION_GRANTED) {
+                    permissionsToRequest.add(permission)
+                }
+            }
+        }
+
+        if (permissionsToRequest.isNotEmpty()) {
+            ActivityCompat.requestPermissions(
+                activity,
+                permissionsToRequest.toTypedArray(),
+                requestCode
+            )
+        }
+    }
+
+    fun hasNotificationPermission(context: Context): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+        } else {
+            true
+        }
+    }
+
+    fun requestBatteryOptimizationExemption(context: Context) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
+            val packageName = context.packageName
+            val uri = Uri.parse("package:$packageName")
+            intent.data = uri
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(intent)
+        }
+    }
+
+    fun isBatteryOptimizationExempt(context: Context): Boolean {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+            return powerManager.isIgnoringBatteryOptimizations(context.packageName)
+        }
+        return true
+    }
+
+    fun hasForegroundServicePermission(context: Context): Boolean {
+        return ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.FOREGROUND_SERVICE
+        ) == PackageManager.PERMISSION_GRANTED
+    }
+
+    fun hasForegroundServiceDataSyncPermission(context: Context): Boolean {
+        return ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.FOREGROUND_SERVICE_DATA_SYNC
+        ) == PackageManager.PERMISSION_GRANTED
+    }
+
+    fun getMissingPermissions(context: Context): List<String> {
+        val missing = mutableListOf<String>()
+        
+        REQUIRED_PERMISSIONS.forEach { permission ->
+            if (ContextCompat.checkSelfPermission(context, permission) != PackageManager.PERMISSION_GRANTED) {
+                missing.add(permission)
+            }
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            ANDROID_13_PERMISSIONS.forEach { permission ->
+                if (ContextCompat.checkSelfPermission(context, permission) != PackageManager.PERMISSION_GRANTED) {
+                    missing.add(permission)
+                }
+            }
+        }
+
+        return missing
+    }
 }

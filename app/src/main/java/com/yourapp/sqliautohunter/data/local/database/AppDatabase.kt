@@ -1,7 +1,10 @@
 package com.yourapp.sqliautohunter.data.local.database
 
+import android.content.Context
 import androidx.room.Database
+import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.TypeConverters
 import com.yourapp.sqliautohunter.data.local.database.dao.CrashLogDao
 import com.yourapp.sqliautohunter.data.local.database.dao.SearchQueueDao
 import com.yourapp.sqliautohunter.data.local.database.dao.TestedUrlHashDao
@@ -10,22 +13,8 @@ import com.yourapp.sqliautohunter.data.local.database.entity.CrashLogEntity
 import com.yourapp.sqliautohunter.data.local.database.entity.SearchQueueEntity
 import com.yourapp.sqliautohunter.data.local.database.entity.TestedUrlHashEntity
 import com.yourapp.sqliautohunter.data.local.database.entity.VulnerabilityResultEntity
+import com.yourapp.sqliautohunter.util.Constants
 
-/**
- * Room database for SQLi Auto-Hunter.
- *
- * Four tables:
- *   - search_queue        : persistent pending/testing queue
- *   - tested_urls_hash    : SHA-256 dedup ledger
- *   - vulnerability_results : confirmed findings
- *   - crash_logs          : diagnostics
- *
- * Constructed via Hilt (DatabaseModule) with:
- *   - foreign keys disabled (tables are independent by design)
- *   - WAL journal mode (concurrent readers during worker writes)
- *   - fallbackToDestructiveMigration OFF in release; migrations must be added
- *     explicitly when bumping `version`.
- */
 @Database(
     entities = [
         SearchQueueEntity::class,
@@ -33,8 +22,13 @@ import com.yourapp.sqliautohunter.data.local.database.entity.VulnerabilityResult
         VulnerabilityResultEntity::class,
         CrashLogEntity::class
     ],
-    version = 1,
-    exportSchema = true
+    version = Constants.DATABASE_VERSION,
+    exportSchema = false
+)
+@TypeConverters(
+    com.yourapp.sqliautohunter.data.local.database.entity.ScanStatusConverter::class,
+    com.yourapp.sqliautohunter.data.local.database.entity.VulnerabilityTypeConverter::class,
+    com.yourapp.sqliautohunter.data.local.database.entity.ConfidenceLevelConverter::class
 )
 abstract class AppDatabase : RoomDatabase() {
 
@@ -44,6 +38,30 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun crashLogDao(): CrashLogDao
 
     companion object {
-        const val DB_NAME = "sqli_auto_hunter.db"
+        @Volatile
+        private var INSTANCE: AppDatabase? = null
+
+        fun getDatabase(context: Context): AppDatabase {
+            return INSTANCE ?: synchronized(this) {
+                val instance = Room.databaseBuilder(
+                    context.applicationContext,
+                    AppDatabase::class.java,
+                    Constants.DATABASE_NAME
+                )
+                    .fallbackToDestructiveMigration()
+                    .build()
+                INSTANCE = instance
+                instance
+            }
+        }
+
+        fun getInMemoryDatabase(context: Context): AppDatabase {
+            return Room.inMemoryDatabaseBuilder(
+                context.applicationContext,
+                AppDatabase::class.java
+            )
+                .fallbackToDestructiveMigration()
+                .build()
+        }
     }
 }
