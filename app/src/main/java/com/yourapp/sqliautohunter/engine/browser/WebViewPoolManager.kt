@@ -12,7 +12,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
-class WebViewPoolManager(private val context: Context) {
+class WebViewPoolManager(private val appContext: Context) {
 
     private val webViewPool = mutableListOf<WebViewWrapper>()
     private val mutex = Mutex()
@@ -26,52 +26,55 @@ class WebViewPoolManager(private val context: Context) {
         var url: String? = null
     )
 
-    init {
-        // Initialize pool with default size
-        initializePool(maxPoolSize)
-    }
+    // Pool starts empty on purpose: WebViews are heavyweight, must be created
+    // on the main thread, and do slow disk init. Creating them eagerly in init
+    // stalls first-frame composition (startup ANR) and crashes when Hilt
+    // happens to build this singleton off the main thread (Android 12+).
+    // Instances are created on demand in acquireWebView() instead.
 
-    fun setMaxPoolSize(size: Int) {
+    suspend fun setMaxPoolSize(size: Int) {
         maxPoolSize = size
-        // If current pool is smaller than max, add more
-        while (currentPoolSize < maxPoolSize) {
-            addWebViewToPool()
-        }
+        // If current pool is smaller than max, extra instances are created
+        // lazily on the main thread by the next acquireWebView() call.
         // If current pool is larger than max, remove excess
         while (currentPoolSize > maxPoolSize) {
             removeWebViewFromPool()
         }
     }
 
-    private fun initializePool(size: Int) {
-        repeat(size) {
-            addWebViewToPool()
+    private suspend fun addWebViewToPool(): WebViewWrapper {
+        // WebView MUST be constructed on the main thread; callers of
+        // acquireWebView() may be on Dispatchers.IO.
+        val webView = withContext(Dispatchers.Main) {
+            createWebView()
         }
-    }
-
-    private fun addWebViewToPool(): WebViewWrapper {
-        val webView = createWebView()
         val wrapper = WebViewWrapper(webView = webView)
         webViewPool.add(wrapper)
         currentPoolSize++
         return wrapper
     }
 
-    private fun removeWebViewFromPool(): WebViewWrapper? {
+    private suspend fun removeWebViewFromPool(): WebViewWrapper? {
         val unusedWebViews = webViewPool.filter { !it.isInUse }
         if (unusedWebViews.isNotEmpty()) {
             val wrapper = unusedWebViews.first()
             webViewPool.remove(wrapper)
             currentPoolSize--
-            // Clean up the WebView
-            wrapper.webView.destroy()
+            // WebView.destroy() must run on the main thread.
+            withContext(Dispatchers.Main) {
+                try {
+                    wrapper.webView.destroy()
+                } catch (e: Exception) {
+                    // Ignore errors during cleanup
+                }
+            }
             return wrapper
         }
         return null
     }
 
     private fun createWebView(): WebView {
-        return WebView(context).apply {
+        return WebView(appContext).apply {
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
             settings.databaseEnabled = true
@@ -125,14 +128,17 @@ class WebViewPoolManager(private val context: Context) {
         }
     }
 
-    private fun clearWebView(webView: WebView) {
-        try {
-            webView.clearCache(true)
-            webView.clearHistory()
-            webView.clearFormData()
-            webView.loadUrl("about:blank")
-        } catch (e: Exception) {
-            // Ignore errors during cleanup
+    private suspend fun clearWebView(webView: WebView) {
+        // All WebView methods must run on the main thread.
+        withContext(Dispatchers.Main) {
+            try {
+                webView.clearCache(true)
+                webView.clearHistory()
+                webView.clearFormData()
+                webView.loadUrl("about:blank")
+            } catch (e: Exception) {
+                // Ignore errors during cleanup
+            }
         }
     }
 
@@ -157,34 +163,45 @@ class WebViewPoolManager(private val context: Context) {
         return currentPoolSize
     }
 
-    fun destroy() {
-        webViewPool.forEach { wrapper ->
-            try {
-                wrapper.webView.destroy()
-            } catch (e: Exception) {
-                // Ignore
-            }
+    suspend fun destroy() {
+        val wrappers = mutex.withLock {
+            val copy = webViewPool.toList()
+            webViewPool.clear()
+            currentPoolSize = 0
+            copy
         }
-        webViewPool.clear()
-        currentPoolSize = 0
-    }
-
-    // Clean up unused WebViews after a period of inactivity
-    suspend fun cleanupInactiveWebViews(inactiveThresholdMs: Long = 300000) {
-        mutex.withLock {
-            val now = System.currentTimeMillis()
-            val inactiveWebViews = webViewPool.filter { wrapper ->
-                !wrapper.isInUse && (now - wrapper.lastUsedTime) > inactiveThresholdMs
-            }
-            
-            inactiveWebViews.forEach { wrapper ->
-                webViewPool.remove(wrapper)
+        withContext(Dispatchers.Main) {
+            wrappers.forEach { wrapper ->
                 try {
                     wrapper.webView.destroy()
                 } catch (e: Exception) {
                     // Ignore
                 }
+            }
+        }
+    }
+
+    // Clean up unused WebViews after a period of inactivity
+    suspend fun cleanupInactiveWebViews(inactiveThresholdMs: Long = 300000) {
+        val toDestroy = mutex.withLock {
+            val now = System.currentTimeMillis()
+            val inactiveWebViews = webViewPool.filter { wrapper ->
+                !wrapper.isInUse && (now - wrapper.lastUsedTime) > inactiveThresholdMs
+            }
+
+            inactiveWebViews.forEach { wrapper ->
+                webViewPool.remove(wrapper)
                 currentPoolSize--
+            }
+            inactiveWebViews
+        }
+        withContext(Dispatchers.Main) {
+            toDestroy.forEach { wrapper ->
+                try {
+                    wrapper.webView.destroy()
+                } catch (e: Exception) {
+                    // Ignore
+                }
             }
         }
     }

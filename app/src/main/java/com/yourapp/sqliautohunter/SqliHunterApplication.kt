@@ -1,17 +1,18 @@
 package com.yourapp.sqliautohunter
 
 import android.app.Application
-import android.content.Intent
-import android.os.Build
-import com.yourapp.sqliautohunter.di.AppModule
+import androidx.hilt.work.HiltWorkerFactory
+import androidx.work.Configuration
 import com.yourapp.sqliautohunter.engine.crash.GlobalExceptionHandler
-import com.yourapp.sqliautohunter.service.ScanForegroundService
 import com.yourapp.sqliautohunter.util.PermissionHelper
 import dagger.hilt.android.HiltAndroidApp
 import javax.inject.Inject
 
 @HiltAndroidApp
-class SqliHunterApplication : Application() {
+class SqliHunterApplication : Application(), Configuration.Provider {
+
+    @Inject
+    lateinit var workerFactory: HiltWorkerFactory
 
     @Inject
     lateinit var globalExceptionHandler: GlobalExceptionHandler
@@ -21,29 +22,26 @@ class SqliHunterApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
-        
+
         // GlobalExceptionHandler installs itself in init; no initialize() call needed.
-        
-        // Request battery optimization exemption
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            permissionHelper.requestBatteryOptimizationExemption(this)
-        }
-        
-        // Start foreground service if needed
-        startForegroundService()
+        //
+        // Startup discipline (Android 12+, enforced on Android 15):
+        // - Do NOT start the foreground service here. startForegroundService()
+        //   from Application.onCreate throws ForegroundServiceStartNotAllowedException
+        //   whenever the process starts while the app is in the background
+        //   (boot, WorkManager reschedule, service restart). The service is
+        //   started only from explicit user scan actions and the WorkManager
+        //   watchdog, both of which run in a valid foreground context.
+        // - Do NOT fire ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS here either:
+        //   it yanks the user to system settings on every cold start and can
+        //   throw ActivityNotFoundException on devices without a handler.
+        //   MainActivity prompts for it once, guarded, from the foreground.
     }
 
-    private fun startForegroundService() {
-        val serviceIntent = Intent(this, ScanForegroundService::class.java).apply {
-            action = com.yourapp.sqliautohunter.util.Constants.SERVICE_ACTION_START
-        }
-        
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(serviceIntent)
-        } else {
-            startService(serviceIntent)
-        }
-    }
+    override val workManagerConfiguration: Configuration
+        get() = Configuration.Builder()
+            .setWorkerFactory(workerFactory)
+            .build()
 
     fun requestPermissions() {
         // This would be called from an Activity

@@ -6,10 +6,12 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.os.Binder
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
+import androidx.core.app.ServiceCompat
 import com.yourapp.sqliautohunter.MainActivity
 import com.yourapp.sqliautohunter.R
 import com.yourapp.sqliautohunter.util.Constants
@@ -63,7 +65,20 @@ class ScanForegroundService : Service() {
 
     private fun startForeground() {
         val notification = createNotification()
-        startForeground(Constants.NOTIFICATION_ID, notification)
+        // Android 14+ (enforced on 15) requires the foreground service type
+        // at promotion time. ServiceCompat ignores the type below API 29,
+        // where the manifest-declared type does not exist yet.
+        val serviceType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+        } else {
+            0
+        }
+        ServiceCompat.startForeground(
+            this,
+            Constants.NOTIFICATION_ID,
+            notification,
+            serviceType
+        )
         currentNotification = notification
     }
 
@@ -201,6 +216,7 @@ class ScanForegroundService : Service() {
         super.onDestroy()
         isServiceRunning = false
         scope.cancel()
+        ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
     }
 
     fun isRunning(): Boolean = isServiceRunning
