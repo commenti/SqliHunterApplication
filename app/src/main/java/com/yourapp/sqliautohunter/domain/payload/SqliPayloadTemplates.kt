@@ -12,7 +12,7 @@ object SqliPayloadTemplates {
         "'",
         "\"",
         "')",
-        "\"")",
+        "\")",
         "' OR '1'='1",
         "' OR 1=1 -- ",
         "' OR 1=1 #",
@@ -103,7 +103,6 @@ object SqliPayloadTemplates {
                 "$baseUrl$separator$payload"
             }
             else -> {
-                // Try to append to path
                 if (baseUrl.endsWith("/")) {
                     "${baseUrl}test$payload"
                 } else {
