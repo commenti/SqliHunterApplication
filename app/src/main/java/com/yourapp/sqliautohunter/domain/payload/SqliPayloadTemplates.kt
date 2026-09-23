@@ -59,7 +59,6 @@ object SqliPayloadTemplates {
         ERROR_BASED_PAYLOADS + BOOLEAN_BASED_PAYLOADS + TIME_BASED_PAYLOADS + UNION_BASED_PAYLOADS
     }
 
-    // Payload categories
     fun getPayloadsByType(type: PayloadType): List<String> {
         return when (type) {
             PayloadType.ERROR_BASED -> ERROR_BASED_PAYLOADS
@@ -88,7 +87,6 @@ object SqliPayloadTemplates {
         ALL
     }
 
-    // Generate test URLs with payloads
     fun generateTestUrl(baseUrl: String, payload: String): String {
         return when {
             baseUrl.contains("?") -> {
@@ -112,18 +110,16 @@ object SqliPayloadTemplates {
         }
     }
 
-    // Generate multiple test URLs for a single base URL
-    fun generateTestUrls(baseUrl: String, payloadType: PayloadType = PayloadType.ALL, limit: Int = 5): List<String> {
+    fun generateTestUrls(
+        baseUrl: String,
+        payloadType: PayloadType = PayloadType.ALL,
+        limit: Int = 5
+    ): List<String> {
         val payloads = getPayloadsByType(payloadType).take(limit)
-        return payloads.map { payload ->
-            generateTestUrl(baseUrl, payload)
-        }
+        return payloads.map { payload -> generateTestUrl(baseUrl, payload) }
     }
 
-    // Generate all test URLs for a URL
     fun generateAllTestUrls(baseUrl: String): List<String> {
-        return ALL_PAYLOADS.map { payload ->
-            generateTestUrl(baseUrl, payload)
-        }
+        return ALL_PAYLOADS.map { payload -> generateTestUrl(baseUrl, payload) }
     }
 }
