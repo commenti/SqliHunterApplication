@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Custom color attribute - not part of AppCompat/Material3, so it must be
+         declared here before it can be used as an <item> in a theme/style. -->
+    <attr name="colorPrimaryLight" format="color" />
+</resources>
