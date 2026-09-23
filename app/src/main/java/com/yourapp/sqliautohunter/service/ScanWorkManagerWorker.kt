@@ -1,70 +1,47 @@
 package com.yourapp.sqliautohunter.service
 
 import android.content.Context
+import android.content.pm.ServiceInfo
+import android.os.Build
+import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
+import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
 import com.yourapp.sqliautohunter.data.repository.QueueRepository
 import com.yourapp.sqliautohunter.engine.concurrency.ScanWorkerPool
+import com.yourapp.sqliautohunter.util.Constants
+import dagger.assisted.Assisted
+import dagger.assisted.AssistedInject
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 
-class ScanWorkManagerWorker(
-    context: Context,
-    params: WorkerParameters,
+@HiltWorker
+class ScanWorkManagerWorker @AssistedInject constructor(
+    @Assisted context: Context,
+    @Assisted params: WorkerParameters,
     private val queueRepository: QueueRepository,
     private val scanWorkerPool: ScanWorkerPool
 ) : CoroutineWorker(context, params) {
-
     companion object {
         const val WORKER_TAG = "sqli_scan_worker"
         const val INPUT_KEY_KEYWORD = "keyword"
         const val INPUT_KEY_BATCH_SIZE = "batch_size"
     }
-
     override suspend fun doWork(): Result {
         return withContext(Dispatchers.IO) {
             try {
-                // Check if there are items in the queue
-                val queueStats = queueRepository.getQueueStats().value
-                
-                if (queueStats.pending <= 0 && queueStats.testing <= 0) {
-                    return@withContext Result.success()
-                }
-
-                // Start the worker pool if not running
-                if (!scanWorkerPool.getStats().isRunning) {
-                    scanWorkerPool.start()
-                }
-
-                // Wait for the worker pool to process items
-                // In a real implementation, we'd have a way to know when work is done
-                // For now, we'll just let it run and return success
-                
+                val queueStats = queueRepository.getQueueStats().first()
+                if (queueStats.pending <= 0 && queueStats.testing <= 0) return@withContext Result.success()
+                if (!scanWorkerPool.getStats().isRunning) scanWorkerPool.start()
                 Result.success()
-                
-            } catch (e: Exception) {
-                Result.retry()
-            }
+            } catch (e: Exception) { Result.retry() }
         }
     }
-
     override suspend fun getForegroundInfo(): ForegroundInfo {
-        return ForegroundInfo(
-            NotificationController.getServiceNotification(
-                applicationContext,
-                "Background Scan Running",
-                "Processing queue items"
-            ).id,
-            NotificationController.createForegroundNotification(
-                applicationContext,
-                "SQLi Hunter Background Scan",
-                "Processing URLs in background"
-            )
-        )
+        val notification = NotificationController.createForegroundNotification(applicationContext, "SQLi Hunter Background Scan", "Processing URLs in background")
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) ForegroundInfo(Constants.NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+        else ForegroundInfo(Constants.NOTIFICATION_ID, notification)
     }
-
-    suspend fun startScanWithKeyword(keyword: String, batchSize: Int = 10) {
-        // This would be called to start a new scan with a specific keyword
-        // In a real implementation, this would add URLs to the queue and start processing
-    }
+    suspend fun startScanWithKeyword(keyword: String, batchSize: Int = 10) {}
 }

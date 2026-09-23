@@ -2,8 +2,8 @@ package com.yourapp.sqliautohunter.ui.navigation
 
 import androidx.compose.runtime.Composable
 import androidx.navigation.NavHostController
+import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
-import androidx.navigation.compose.navigation
 import com.yourapp.sqliautohunter.ui.screens.dashboard.LiveDashboardScreen
 import com.yourapp.sqliautohunter.ui.screens.keywordinput.KeywordInputScreen
 import com.yourapp.sqliautohunter.ui.screens.logs.CrashLogScreen
@@ -28,30 +28,11 @@ object AppNavGraph {
             // Handle navigation changes if needed
         }
     }
-
-    @Composable
-    fun Builder.composable(
-        route: String,
-        content: @Composable () -> Unit
-    ) {
-        androidx.navigation.compose.composable(route) {
-            content()
-        }
-    }
-
-    @Composable
-    fun Builder.navigation(
-        startDestination: String,
-        builder: NavGraphBuilder.() -> Unit
-    ) {
-        androidx.navigation.compose.navigation(startDestination, builder)
-    }
 }
 
-fun setupNavigation(navController: NavHostController) {
-    navController.setViewModelStore(null)
-    
-    androidx.navigation.compose.NavHost(
+@Composable
+fun SetupNavigation(navController: NavHostController) {
+    NavHost(
         navController = navController,
         startDestination = AppNavGraph.ROUTE_KEYWORD_INPUT
     ) {
@@ -73,7 +54,7 @@ fun setupNavigation(navController: NavHostController) {
                 }
             )
         }
-        
+
         composable(AppNavGraph.ROUTE_MANUAL_TEST) {
             ManualUrlTestScreen(
                 onNavigateBack = {
@@ -86,7 +67,7 @@ fun setupNavigation(navController: NavHostController) {
                 }
             )
         }
-        
+
         composable(AppNavGraph.ROUTE_DASHBOARD) {
             LiveDashboardScreen(
                 onNavigateToResults = {
@@ -100,7 +81,7 @@ fun setupNavigation(navController: NavHostController) {
                 }
             )
         }
-        
+
         composable(AppNavGraph.ROUTE_RESULTS) {
             ResultsScreen(
                 onNavigateToDetail = { resultId ->
@@ -114,7 +95,7 @@ fun setupNavigation(navController: NavHostController) {
                 }
             )
         }
-        
+
         composable("${AppNavGraph.ROUTE_RESULT_DETAIL}/{${AppNavGraph.ARG_RESULT_ID}}") { backStackEntry ->
             val resultId = backStackEntry.arguments?.getString(AppNavGraph.ARG_RESULT_ID)?.toLongOrNull() ?: 0L
             ResultDetailScreen(
@@ -124,7 +105,7 @@ fun setupNavigation(navController: NavHostController) {
                 }
             )
         }
-        
+
         composable(AppNavGraph.ROUTE_SETTINGS) {
             SettingsScreen(
                 onNavigateBack = {
@@ -135,7 +116,7 @@ fun setupNavigation(navController: NavHostController) {
                 }
             )
         }
-        
+
         composable(AppNavGraph.ROUTE_LOGS) {
             CrashLogScreen(
                 onNavigateBack = {
@@ -145,3 +126,5 @@ fun setupNavigation(navController: NavHostController) {
         }
     }
 }
+
+fun setupNavigation(navController: NavHostController) {}

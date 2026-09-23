@@ -125,20 +125,11 @@ class ScanResultRepository(
             vulnerabilityResultDao.getCountByConfidence("HIGH"),
             vulnerabilityResultDao.getCountByConfidence("MEDIUM"),
             vulnerabilityResultDao.getCountByConfidence("LOW")
-        ) { total, errorBased, booleanBased, timeBased, unionBased, high, medium, low ->
+        ) { args: Array<Int> ->
             ResultStats(
-                total = total,
-                byType = mapOf(
-                    "ERROR_BASED" to errorBased,
-                    "BOOLEAN_BASED" to booleanBased,
-                    "TIME_BASED" to timeBased,
-                    "UNION_BASED" to unionBased
-                ),
-                byConfidence = mapOf(
-                    "HIGH" to high,
-                    "MEDIUM" to medium,
-                    "LOW" to low
-                )
+                total = args[0],
+                byType = mapOf("ERROR_BASED" to args[1], "BOOLEAN_BASED" to args[2], "TIME_BASED" to args[3], "UNION_BASED" to args[4]),
+                byConfidence = mapOf("HIGH" to args[5], "MEDIUM" to args[6], "LOW" to args[7])
             )
         }.flowOn(Dispatchers.IO)
     }

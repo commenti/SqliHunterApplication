@@ -10,6 +10,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -94,7 +96,7 @@ class ScanWorkerPool(
     }
 
     private suspend fun workerLoop(workerId: Int) {
-        while (isRunning && !stopRequested && isActive) {
+        while (isRunning && !stopRequested && currentCoroutineContext().isActive) {
             // Check if paused
             if (pauseRequested) {
                 kotlinx.coroutines.delay(1000)
@@ -181,7 +183,7 @@ class ScanWorkerPool(
         lastError = null
     }
 
-    fun getStats(): WorkerPoolStats {
+    suspend fun getStats(): WorkerPoolStats {
         return WorkerPoolStats(
             isRunning = isRunning,
             isPaused = pauseRequested,
@@ -195,7 +197,7 @@ class ScanWorkerPool(
     }
 
     suspend fun getQueueStats(): QueueRepository.QueueStats {
-        return queueRepository.getQueueStats().value
+        return queueRepository.getQueueStats().first()
     }
 
     data class WorkerPoolStats(

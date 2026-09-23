@@ -9,19 +9,22 @@ import java.util.concurrent.TimeUnit
 
 class DuckDuckGoScraper : SearchEngineClient {
 
-    private val ddgBaseUrl = "https://html.duckduckgo.com"
     private val apiBaseUrl = "https://api.duckduckgo.com"
 
-    private val client: OkHttpClient by lazy {
-        OkHttpClient.Builder()
-            .connectTimeout(Constants.NETWORK_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-            .readTimeout(Constants.NETWORK_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-            .writeTimeout(Constants.NETWORK_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-            .followRedirects(true)
-            .build()
-    }
+    constructor() : super(createClient(), "https://html.duckduckgo.com")
 
-    constructor() : super(client, ddgBaseUrl)
+    companion object {
+        const val BASE_URL = "https://html.duckduckgo.com"
+
+        private fun createClient(): OkHttpClient {
+            return OkHttpClient.Builder()
+                .connectTimeout(Constants.NETWORK_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                .readTimeout(Constants.NETWORK_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                .writeTimeout(Constants.NETWORK_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                .followRedirects(true)
+                .build()
+        }
+    }
 
     override suspend fun search(query: String, maxResults: Int): List<String> {
         return scrape(query, maxResults)
@@ -65,7 +68,7 @@ class DuckDuckGoScraper : SearchEngineClient {
 
     private fun buildSearchUrl(query: String, offset: Int): String {
         val encodedQuery = java.net.URLEncoder.encode(query, "UTF-8")
-        return "$ddgBaseUrl/html/?q=$encodedQuery&kl=us-en&df=&p=$offset"
+        return "$BASE_URL/html/?q=$encodedQuery&kl=us-en&df=&p=$offset"
     }
 
     private fun parseDuckDuckGoResults(html: String, maxResults: Int): List<String> {

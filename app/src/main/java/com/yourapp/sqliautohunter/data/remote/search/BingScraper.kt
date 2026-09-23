@@ -9,19 +9,22 @@ import java.util.concurrent.TimeUnit
 
 class BingScraper : SearchEngineClient {
 
-    private val bingBaseUrl = "https://www.bing.com"
-    private val searchEndpoint = "$bingBaseUrl/search"
+    private val searchEndpoint = "$BASE_URL/search"
 
-    private val client: OkHttpClient by lazy {
-        OkHttpClient.Builder()
-            .connectTimeout(Constants.NETWORK_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-            .readTimeout(Constants.NETWORK_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-            .writeTimeout(Constants.NETWORK_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-            .followRedirects(true)
-            .build()
+    constructor() : super(createClient(), "https://www.bing.com")
+
+    companion object {
+        const val BASE_URL = "https://www.bing.com"
+
+        private fun createClient(): OkHttpClient {
+            return OkHttpClient.Builder()
+                .connectTimeout(Constants.NETWORK_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                .readTimeout(Constants.NETWORK_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                .writeTimeout(Constants.NETWORK_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                .followRedirects(true)
+                .build()
+        }
     }
-
-    constructor() : super(client, bingBaseUrl)
 
     override suspend fun search(query: String, maxResults: Int): List<String> {
         return scrape(query, maxResults)

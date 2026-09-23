@@ -71,7 +71,7 @@ fun ScanProgressCard(
             val progressValue = if (total > 0) progress.queriesProcessed.toFloat() / total else 0f
 
             LinearProgressIndicator(
-                progress = { progressValue },
+                progress = progressValue,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(8.dp),

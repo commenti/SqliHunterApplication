@@ -31,7 +31,7 @@ class CrashLogManager(
 
     private fun handleUncaughtException(thread: Thread, throwable: Throwable) {
         scope.launch(Dispatchers.IO) {
-            logException(thread, throwable, "Uncaught Exception")
+            logException(throwable, thread, "Uncaught Exception")
         }
     }
 

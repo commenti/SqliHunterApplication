@@ -9,22 +9,25 @@ import java.util.concurrent.TimeUnit
 
 class SearXScraper : SearchEngineClient {
 
-    private val defaultBaseUrl = "https://searx.space"
     private var customBaseUrl: String? = null
 
-    private val client: OkHttpClient by lazy {
-        OkHttpClient.Builder()
-            .connectTimeout(Constants.NETWORK_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-            .readTimeout(Constants.NETWORK_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-            .writeTimeout(Constants.NETWORK_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-            .followRedirects(true)
-            .build()
+    constructor() : super(createClient(), DEFAULT_BASE_URL)
+
+    constructor(baseUrl: String) : super(createClient(), baseUrl) {
+        customBaseUrl = baseUrl
     }
 
-    constructor() : super(client, defaultBaseUrl)
-    
-    constructor(baseUrl: String) : super(client, baseUrl) {
-        customBaseUrl = baseUrl
+    companion object {
+        const val DEFAULT_BASE_URL = "https://searx.space"
+
+        private fun createClient(): OkHttpClient {
+            return OkHttpClient.Builder()
+                .connectTimeout(Constants.NETWORK_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                .readTimeout(Constants.NETWORK_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                .writeTimeout(Constants.NETWORK_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                .followRedirects(true)
+                .build()
+        }
     }
 
     override suspend fun search(query: String, maxResults: Int): List<String> {
@@ -68,7 +71,7 @@ class SearXScraper : SearchEngineClient {
     }
 
     private fun buildSearchUrl(query: String, page: Int): String {
-        val baseUrl = customBaseUrl ?: defaultBaseUrl
+        val baseUrl = customBaseUrl ?: DEFAULT_BASE_URL
         val encodedQuery = java.net.URLEncoder.encode(query, "UTF-8")
         return "$baseUrl/?q=$encodedQuery&p=$page"
     }
@@ -140,6 +143,6 @@ class SearXScraper : SearchEngineClient {
     }
 
     fun getCurrentBaseUrl(): String {
-        return customBaseUrl ?: defaultBaseUrl
+        return customBaseUrl ?: DEFAULT_BASE_URL
     }
 }

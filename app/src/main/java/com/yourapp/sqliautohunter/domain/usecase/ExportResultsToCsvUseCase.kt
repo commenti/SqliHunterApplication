@@ -5,6 +5,7 @@ import com.yourapp.sqliautohunter.data.local.database.entity.VulnerabilityResult
 import com.yourapp.sqliautohunter.util.CsvWriter
 import com.yourapp.sqliautohunter.util.FileStorageHelper
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import java.io.File
 
@@ -23,17 +24,17 @@ class ExportResultsToCsvUseCase(
         return withContext(Dispatchers.IO) {
             val results = if (exportAll) {
                 if (filterByKeyword != null && filterByConfidence != null) {
-                    vulnerabilityResultDao.getByKeyword(filterByKeyword).value.filter { 
+                    vulnerabilityResultDao.getByKeyword(filterByKeyword).first().filter { 
                         it.confidence.name == filterByConfidence
                     }
                 } else if (filterByKeyword != null) {
-                    vulnerabilityResultDao.getByKeyword(filterByKeyword).value
+                    vulnerabilityResultDao.getByKeyword(filterByKeyword).first()
                 } else if (filterByConfidence != null) {
-                    vulnerabilityResultDao.getAll().value.filter { 
+                    vulnerabilityResultDao.getAll().first().filter { 
                         it.confidence.name == filterByConfidence
                     }
                 } else {
-                    vulnerabilityResultDao.getAll().value
+                    vulnerabilityResultDao.getAll().first()
                 }
             } else {
                 vulnerabilityResultDao.getRecent(100)
@@ -97,13 +98,13 @@ class ExportResultsToCsvUseCase(
     ): List<CsvPreviewRow> {
         return withContext(Dispatchers.IO) {
             val results = if (keyword != null && confidence != null) {
-                vulnerabilityResultDao.getByKeyword(keyword).value.filter { 
+                vulnerabilityResultDao.getByKeyword(keyword).first().filter { 
                     it.confidence.name == confidence
                 }
             } else if (keyword != null) {
-                vulnerabilityResultDao.getByKeyword(keyword).value
+                vulnerabilityResultDao.getByKeyword(keyword).first()
             } else if (confidence != null) {
-                vulnerabilityResultDao.getAll().value.filter { 
+                vulnerabilityResultDao.getAll().first().filter { 
                     it.confidence.name == confidence
                 }
             } else {

@@ -19,7 +19,7 @@ class WebViewPoolManager(private val context: Context) {
     private var maxPoolSize = Constants.DEFAULT_CONCURRENCY
     private var currentPoolSize = 0
 
-    private data class WebViewWrapper(
+    data class WebViewWrapper(
         val webView: WebView,
         var isInUse: Boolean = false,
         var lastUsedTime: Long = 0,

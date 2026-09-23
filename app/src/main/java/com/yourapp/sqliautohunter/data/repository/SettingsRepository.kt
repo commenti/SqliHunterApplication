@@ -5,6 +5,7 @@ import com.yourapp.sqliautohunter.data.local.preferences.SettingsDataStore
 import com.yourapp.sqliautohunter.util.Constants
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 
 class SettingsRepository(private val context: Context) {
 
@@ -41,6 +42,7 @@ class SettingsRepository(private val context: Context) {
     suspend fun setBlacklist(value: String) = settingsDataStore.setBlacklist(value)
 
     fun getAllSettingsFlow(): Flow<Map<String, Any>> {
+        @Suppress("UNCHECKED_CAST")
         return combine(
             settingsDataStore.threadCountFlow,
             settingsDataStore.delayMsFlow,
@@ -48,14 +50,14 @@ class SettingsRepository(private val context: Context) {
             settingsDataStore.proxyListFlow,
             settingsDataStore.autoExportFlow,
             settingsDataStore.blacklistFlow
-        ) { threadCount, delayMs, bulkMode, proxyList, autoExport, blacklist ->
+        ) { args: Array<Any?> ->
             mapOf(
-                Constants.SETTING_THREAD_COUNT to threadCount,
-                Constants.SETTING_DELAY_MS to delayMs,
-                Constants.SETTING_BULK_MODE to bulkMode,
-                Constants.SETTING_PROXY_LIST to proxyList,
-                Constants.SETTING_AUTO_EXPORT to autoExport,
-                "blacklist_domains" to blacklist
+                Constants.SETTING_THREAD_COUNT to (args[0] as Int),
+                Constants.SETTING_DELAY_MS to (args[1] as Long),
+                Constants.SETTING_BULK_MODE to (args[2] as Boolean),
+                Constants.SETTING_PROXY_LIST to (args[3] as String),
+                Constants.SETTING_AUTO_EXPORT to (args[4] as Boolean),
+                "blacklist_domains" to (args[5] as String)
             )
         }
     }

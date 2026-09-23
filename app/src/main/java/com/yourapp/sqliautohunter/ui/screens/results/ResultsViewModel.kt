@@ -46,15 +46,8 @@ class ResultsViewModel @Inject constructor(
             ) { results, query, confidence, type, sort ->
                 val filtered = filterResults(results, query, confidence, type)
                 val sorted = sortResults(filtered, sort)
-                
-                _state.value = _state.value.copy(
-                    results = sorted,
-                    totalCount = results.size,
-                    filteredCount = filtered.size
-                )
-            }.collect { state ->
-                _state.value = state
-            }
+                ResultsState(results = sorted, totalCount = results.size, filteredCount = filtered.size)
+            }.collect { newState -> _state.value = newState }
         }
     }
 

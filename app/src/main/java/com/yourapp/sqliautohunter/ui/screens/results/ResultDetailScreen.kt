@@ -31,6 +31,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -94,6 +95,7 @@ fun ResultDetailScreen(
                 CircularProgressIndicator()
             }
         } else if (state.error != null) {
+            val errorText = state.error
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -105,7 +107,7 @@ fun ResultDetailScreen(
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = state.error,
+                    text = errorText ?: "",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.error
                 )
@@ -192,7 +194,7 @@ fun ResultDetailScreen(
                         )
 
                         IconButton(
-                            onClick = { clipboardManager.setText(result.url) }
+                            onClick = { clipboardManager.setText(AnnotatedString(result.url)) }
                         ) {
                             Icon(
                                 imageVector = Icons.Default.ContentCopy,
@@ -353,7 +355,7 @@ fun ResultDetailScreen(
                     horizontalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
                     Button(
-                        onClick = { clipboardManager.setText(result.url) },
+                        onClick = { clipboardManager.setText(AnnotatedString(result.url)) },
                         modifier = Modifier.weight(1f)
                     ) {
                         Icon(

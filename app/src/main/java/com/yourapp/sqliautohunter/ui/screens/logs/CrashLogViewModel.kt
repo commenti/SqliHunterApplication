@@ -38,15 +38,8 @@ class CrashLogViewModel @Inject constructor(
                 _selectedSeverity
             ) { logs, query, module, severity ->
                 val filtered = filterLogs(logs, query, module, severity)
-                
-                _state.value = _state.value.copy(
-                    logs = filtered,
-                    totalCount = logs.size,
-                    filteredCount = filtered.size
-                )
-            }.collect { state ->
-                _state.value = state
-            }
+                CrashLogState(logs = filtered, totalCount = logs.size, filteredCount = filtered.size)
+            }.collect { newState -> _state.value = newState }
         }
     }
 

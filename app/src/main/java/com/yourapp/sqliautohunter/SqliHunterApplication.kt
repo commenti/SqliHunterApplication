@@ -22,8 +22,7 @@ class SqliHunterApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         
-        // Initialize global exception handler
-        globalExceptionHandler.initialize()
+        // GlobalExceptionHandler installs itself in init; no initialize() call needed.
         
         // Request battery optimization exemption
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {

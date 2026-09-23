@@ -4,6 +4,7 @@ import com.yourapp.sqliautohunter.domain.model.ConfidenceLevel
 import com.yourapp.sqliautohunter.domain.model.VulnerabilityType
 import com.yourapp.sqliautohunter.domain.payload.ErrorBasedDetector
 import com.yourapp.sqliautohunter.domain.payload.SqliPayloadTemplates
+import com.yourapp.sqliautohunter.util.Constants
 
 class ClassifyResultUseCase {
 

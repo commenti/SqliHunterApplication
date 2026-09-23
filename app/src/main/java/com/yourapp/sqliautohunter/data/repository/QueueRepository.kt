@@ -42,15 +42,8 @@ class QueueRepository(
             searchQueueDao.getVulnerableCount(),
             searchQueueDao.getNotVulnerableCount(),
             searchQueueDao.getErrorCount()
-        ) { total, pending, testing, vulnerable, notVulnerable, error ->
-            QueueStats(
-                total = total,
-                pending = pending,
-                testing = testing,
-                vulnerable = vulnerable,
-                notVulnerable = notVulnerable,
-                error = error
-            )
+        ) { args: Array<Int> ->
+            QueueStats(total = args[0], pending = args[1], testing = args[2], vulnerable = args[3], notVulnerable = args[4], error = args[5])
         }.flowOn(Dispatchers.IO)
     }
 

@@ -3,6 +3,7 @@ package com.yourapp.sqliautohunter.ui.components
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -144,17 +145,4 @@ fun LogListItem(
 
         Divider(color = MaterialTheme.colorScheme.outlineVariant)
     }
-}
-
-@Composable
-fun Box(
-    modifier: Modifier = Modifier,
-    contentAlignment: Alignment = Alignment.TopStart,
-    content: @Composable () -> Unit
-) {
-    androidx.compose.foundation.layout.Box(
-        modifier = modifier,
-        contentAlignment = contentAlignment,
-        content = content
-    )
 }

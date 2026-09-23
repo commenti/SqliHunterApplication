@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -45,8 +46,8 @@ class LiveDashboardViewModel @Inject constructor(
 
     private suspend fun refreshStats() {
         try {
-            val queueStats = queueRepository.getQueueStats().value
-            val resultStats = scanResultRepository.getResultStats().value
+            val queueStats = queueRepository.getQueueStats().first()
+            val resultStats = scanResultRepository.getResultStats().first()
             val workerStats = scanWorkerPool.getStats()
 
             _state.value = _state.value.copy(

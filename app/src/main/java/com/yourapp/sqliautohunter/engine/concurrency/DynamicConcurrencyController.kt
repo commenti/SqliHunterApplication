@@ -20,8 +20,8 @@ class DynamicConcurrencyController(
     private var lastAdjustmentTime: Long = 0
 
     init {
-        // Initialize with device RAM detection
-        updateMaxConcurrency()
+        // Concurrency resolves lazily via updateMaxConcurrency()
+        lastAdjustmentTime = System.currentTimeMillis()
     }
 
     suspend fun acquireSlot(): Boolean {

@@ -44,6 +44,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.yourapp.sqliautohunter.ui.theme.TextPrimary
@@ -131,12 +132,12 @@ fun CrashLogScreen(
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             // Search
-            Box {
+            Box(modifier = Modifier.weight(1f)) {
                 BasicTextField(
                     value = searchQuery,
                     onValueChange = { viewModel.onSearchQueryChanged(it) },
                     modifier = Modifier
-                        .weight(1f)
+                        .fillMaxWidth()
                         .padding(vertical = 8.dp),
                     textStyle = MaterialTheme.typography.bodyMedium.copy(color = TextPrimary),
                     decorationBox = { innerTextField ->
@@ -307,7 +308,7 @@ fun CrashLogScreen(
                 items(state.logs) { log ->
                     LogListItem(
                         log = log,
-                        onClick = { clipboardManager.setText(log.stackTrace) },
+                        onClick = { clipboardManager.setText(AnnotatedString(log.stackTrace)) },
                         modifier = Modifier.fillMaxWidth()
                     )
                 }

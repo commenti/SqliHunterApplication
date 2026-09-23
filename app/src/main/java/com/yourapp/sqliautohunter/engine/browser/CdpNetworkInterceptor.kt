@@ -7,9 +7,12 @@ import com.yourapp.sqliautohunter.domain.payload.ErrorBasedDetector
 import com.yourapp.sqliautohunter.util.Constants
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.withContext
+import kotlin.coroutines.resume
+import kotlin.coroutines.suspendCoroutine
 
 class CdpNetworkInterceptor {
 
@@ -73,23 +76,28 @@ class CdpNetworkInterceptor {
     }
 
     private suspend fun capturePageState(webView: WebView, url: String) {
-        withContext(Dispatchers.IO) {
-            try {
-                val content = webView.evaluateJavascript("document.documentElement.outerHTML") { result ->
-                    result?.toString()
+        try {
+            val content: String? = withContext(Dispatchers.Main) {
+                suspendCoroutine { cont ->
+                    try {
+                        webView.evaluateJavascript("document.documentElement.outerHTML") { result ->
+                            cont.resume(result)
+                        }
+                    } catch (e: Exception) {
+                        cont.resume(null as String?)
+                    }
                 }
-                
-                val response = InterceptedResponse(
-                    url = url,
-                    content = content ?: "",
-                    contentLength = content?.length ?: 0,
-                    isErrorPage = errorDetector.isSqlErrorPage(content ?: "")
-                )
-                
-                responseChannel.send(response)
-            } catch (e: Exception) {
-                // Ignore
             }
+            val safeContent = content ?: ""
+            val response = InterceptedResponse(
+                url = url,
+                content = safeContent,
+                contentLength = safeContent.length,
+                isErrorPage = errorDetector.isSqlErrorPage(safeContent)
+            )
+            responseChannel.send(response)
+        } catch (e: Exception) {
+            // Ignore
         }
     }
 

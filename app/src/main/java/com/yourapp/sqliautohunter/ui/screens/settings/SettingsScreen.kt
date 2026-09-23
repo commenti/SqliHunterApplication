@@ -101,6 +101,7 @@ fun SettingsScreen(
                 CircularProgressIndicator()
             }
         } else if (state.error != null) {
+            val errorText = state.error
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -112,7 +113,7 @@ fun SettingsScreen(
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = state.error,
+                    text = errorText ?: "",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.error
                 )

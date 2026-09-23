@@ -56,7 +56,7 @@ object UrlNormalizer {
         return if (normalized.isEmpty()) "/" else normalized
     }
 
-    private fun normalizeQuery(query: String?): String {
+    private fun normalizeQuery(query: String?): String? {
         if (query.isNullOrEmpty()) return null
         
         // Split query parameters

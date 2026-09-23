@@ -60,10 +60,10 @@ abstract class SearchEngineClient(
 
     abstract suspend fun search(query: String, maxResults: Int = 10): List<String>
 
-    abstract suspend fun scrape(query: String, maxResults: Int, useProxy: Boolean, proxyUrl: String?): List<String>
+    abstract suspend fun scrape(query: String, maxResults: Int, useProxy: Boolean = false, proxyUrl: String? = null): List<String>
 
     protected fun extractUrlsFromHtml(html: String): List<String> {
-        val urlRegex = "(https?://[^\s<>\"]+)".toRegex()
+        val urlRegex = "(https?://[^\\s<>\\\"]+)".toRegex()
         val matches = urlRegex.findAll(html)
         return matches.map { it.value }.distinct().toList()
     }
